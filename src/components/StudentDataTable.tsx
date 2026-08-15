@@ -11,6 +11,8 @@ interface StudentDataTableProps {
   onUpdateStudent: (index: number, updated: StudentData) => void;
   onDeleteStudent: (index: number) => void;
   onAddStudent: () => void;
+  onExportSingle?: (index: number, withBackground: boolean) => void;
+  onExportAll?: (withBackground: boolean) => void;
 }
 
 export const StudentDataTable: React.FC<StudentDataTableProps> = ({
@@ -20,6 +22,8 @@ export const StudentDataTable: React.FC<StudentDataTableProps> = ({
   onUpdateStudent,
   onDeleteStudent,
   onAddStudent,
+  onExportSingle,
+  onExportAll,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -62,6 +66,16 @@ export const StudentDataTable: React.FC<StudentDataTableProps> = ({
               className="pl-9 pr-4 py-1.5 bg-slate-950 text-slate-200 text-xs rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500 w-64"
             />
           </div>
+
+          {onExportAll && students.length > 0 && (
+            <button
+              onClick={() => onExportAll(false)}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-indigo-600/20"
+              title="Descargar todos los estudiantes en un solo archivo DOCX"
+            >
+              <Download className="w-3.5 h-3.5" /> Exportar Todos ({students.length})
+            </button>
+          )}
 
           <button
             onClick={onAddStudent}
@@ -164,16 +178,30 @@ export const StudentDataTable: React.FC<StudentDataTableProps> = ({
 
                   {/* Acciones */}
                   <td className="p-2 text-center">
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        onDeleteStudent(originalIndex);
-                      }}
-                      className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                      title="Eliminar registro"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-center gap-1">
+                      {onExportSingle && (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            onExportSingle(originalIndex, false);
+                          }}
+                          className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/20 rounded-lg transition-colors"
+                          title={`Descargar DOCX solo de ${s.estudiante_nombre || 'este estudiante'}`}
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          onDeleteStudent(originalIndex);
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                        title="Eliminar registro"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

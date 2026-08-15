@@ -25,6 +25,9 @@ class handler(BaseHTTPRequestHandler):
             students = data.get('students', [])
             field_positions = data.get('fieldPositions', {})
 
+            if isinstance(students, dict):
+                students = [students]
+
             if not students:
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
@@ -46,9 +49,18 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+            if len(students) == 1:
+                st = students[0]
+                raw_name = st.get('estudiante_nombre') or st.get('nombre_estudiante') or 'estudiante'
+                import re
+                clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', raw_name)[:40]
+                filename = f"titulo_{clean_name}.docx"
+            else:
+                filename = f"titulos_consolidado_{len(students)}_estudiantes.docx"
+
             self.send_response(200)
             self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-            self.send_header('Content-Disposition', 'attachment; filename="titulos_consolidado.docx"')
+            self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
             self.end_headers()
             self.wfile.write(file_bytes)
 

@@ -15,7 +15,11 @@ export async function POST(req: NextRequest) {
   let outputPath = '';
 
   try {
-    const { students, fieldPositions } = await req.json();
+    let { students, fieldPositions } = await req.json();
+
+    if (students && !Array.isArray(students)) {
+      students = [students];
+    }
 
     if (!students || !Array.isArray(students) || students.length === 0) {
       return NextResponse.json({ error: 'No se enviaron datos de estudiantes para exportar.' }, { status: 400 });
@@ -117,11 +121,18 @@ print("PYTHON SUCCESS")
       // ignore cleanup errors
     }
 
+    let downloadFilename = `titulos_consolidado_${timestamp}.docx`;
+    if (students.length === 1) {
+      const rawName = students[0]?.estudiante_nombre || students[0]?.nombre_estudiante || 'estudiante';
+      const cleanName = rawName.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 40);
+      downloadFilename = `titulo_${cleanName}.docx`;
+    }
+
     return new NextResponse(new Uint8Array(fileBuffer), {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'Content-Disposition': `attachment; filename="titulos_consolidado_${timestamp}.docx"`,
+        'Content-Disposition': `attachment; filename="${downloadFilename}"`,
       },
     });
   } catch (err: any) {

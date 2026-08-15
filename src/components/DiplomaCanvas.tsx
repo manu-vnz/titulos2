@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { StudentData, FieldCoordinate } from '@/types/diploma';
-import { Maximize2, Minimize2, ZoomIn, ZoomOut, Edit3, Move, MousePointer2, CheckCircle2 } from 'lucide-react';
+import { Maximize2, Minimize2, ZoomIn, ZoomOut, Edit3, Move, MousePointer2, CheckCircle2, Download } from 'lucide-react';
 
 // Letter Landscape dimensions (11" x 8.5" = 279.4mm x 215.9mm)
 const LETTER_WIDTH_MM = 279.4;
@@ -44,6 +44,7 @@ interface DiplomaCanvasProps {
   showGrid?: boolean;
   fieldPositions?: Record<string, FieldPosition>;
   onUpdateFieldPositions?: (positions: Record<string, FieldPosition>) => void;
+  onExportStudent?: (withBackground: boolean) => void;
 }
 
 export const DiplomaCanvas: React.FC<DiplomaCanvasProps> = ({
@@ -56,6 +57,7 @@ export const DiplomaCanvas: React.FC<DiplomaCanvasProps> = ({
   showGrid = true,
   fieldPositions: externalPositions,
   onUpdateFieldPositions,
+  onExportStudent,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoomScale, setZoomScale] = useState<number>(1);
@@ -370,6 +372,17 @@ export const DiplomaCanvas: React.FC<DiplomaCanvasProps> = ({
               className="px-2.5 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 text-xs rounded-xl border border-red-500/30 font-medium transition-all"
             >
               Restaurar Posiciones
+            </button>
+          )}
+
+          {onExportStudent && student && (
+            <button
+              onClick={() => onExportStudent(false)}
+              className="px-2.5 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 text-xs rounded-lg border border-indigo-500/40 font-semibold transition-all flex items-center gap-1"
+              title={`Descargar DOCX de este estudiante (${estudiante.nombre_estudiante})`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Descargar Este DOCX</span>
             </button>
           )}
 

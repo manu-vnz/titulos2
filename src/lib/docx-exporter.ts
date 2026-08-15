@@ -11,18 +11,20 @@ export interface ExportOptions {
  * Guarantees 100% identical document generation between local and Vercel environments.
  */
 export async function exportConsolidatedDocx(
-  students: StudentData[],
+  students: StudentData | StudentData[],
   coordinates: Record<string, FieldCoordinate> = {},
   options: ExportOptions = {},
   fieldPositions?: Record<string, FieldPosition>
 ): Promise<Blob> {
+  const studentsList = Array.isArray(students) ? students : [students];
+
   // 1. Try native Vercel Python Serverless Function endpoint (/api/export_docx)
   let response: Response | null = await fetch('/api/export_docx', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ students, fieldPositions }),
+    body: JSON.stringify({ students: studentsList, fieldPositions }),
   }).catch(() => null);
 
   // 2. Fallback to Next.js API route (/api/export-docx) if Python endpoint is not available
@@ -32,7 +34,7 @@ export async function exportConsolidatedDocx(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ students, fieldPositions }),
+      body: JSON.stringify({ students: studentsList, fieldPositions }),
     });
   }
 
@@ -43,3 +45,16 @@ export async function exportConsolidatedDocx(
 
   return await response.blob();
 }
+
+/**
+ * Export single student docx
+ */
+export async function exportSingleStudentDocx(
+  student: StudentData,
+  coordinates: Record<string, FieldCoordinate> = {},
+  options: ExportOptions = {},
+  fieldPositions?: Record<string, FieldPosition>
+): Promise<Blob> {
+  return exportConsolidatedDocx([student], coordinates, options, fieldPositions);
+}
+

@@ -70,7 +70,8 @@ export default function HomePage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>('estudiante_nombre_1');
   const [activeTab, setActiveTab] = useState<'upload' | 'table' | 'canvas'>('upload');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isExportingSingle, setIsExportingSingle] = useState(false);
+  const [isExportingAll, setIsExportingAll] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [fieldPositions, setFieldPositions] = useState<Record<string, FieldPosition>>(
     () => JSON.parse(JSON.stringify(DEFAULT_FIELD_POSITIONS))
@@ -166,28 +167,65 @@ export default function HomePage() {
     }
   };
 
-  const handleExportDocx = async (withBackground: boolean) => {
+  /**
+   * Export DOCX for a single student
+   */
+  const handleExportSingle = async (studentIndex: number = selectedStudentIndex, withBackground: boolean = false) => {
+    if (students.length === 0 || !students[studentIndex]) return;
+
+    const student = students[studentIndex];
+    setIsExportingSingle(true);
+    try {
+      const docxBlob = await exportConsolidatedDocx([student], coordinates, {
+        includeBackground: withBackground,
+      }, fieldPositions);
+
+      const rawName = student.estudiante_nombre || (student as any).nombre_estudiante || 'estudiante';
+      const cleanName = rawName.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 35);
+      const cleanCedula = (student.estudiante_cedula || '').replace(/[^a-zA-Z0-9]/g, '');
+      const modeName = withBackground ? 'digital_fondo' : 'solo_texto';
+      const filename = `titulo_${cleanName}${cleanCedula ? '_' + cleanCedula : ''}_${modeName}.docx`;
+
+      saveAs(docxBlob, filename);
+
+      confetti({
+        particleCount: 80,
+        spread: 60,
+        origin: { y: 0.7 },
+      });
+    } catch (err: any) {
+      console.error('Error generating single student DOCX:', err);
+      alert('Ocurrió un error al exportar el archivo DOCX del estudiante: ' + (err.message || ''));
+    } finally {
+      setIsExportingSingle(false);
+    }
+  };
+
+  /**
+   * Export consolidated DOCX for all students
+   */
+  const handleExportAll = async (withBackground: boolean = false) => {
     if (students.length === 0) return;
 
-    setIsExporting(true);
+    setIsExportingAll(true);
     try {
       const docxBlob = await exportConsolidatedDocx(students, coordinates, {
         includeBackground: withBackground,
       }, fieldPositions);
 
       const modeName = withBackground ? 'digital_completo' : 'impresion_texto';
-      saveAs(docxBlob, `titulos_bachiller_consolidado_${modeName}_${Date.now()}.docx`);
+      saveAs(docxBlob, `titulos_bachiller_consolidado_${students.length}_estudiantes_${modeName}_${Date.now()}.docx`);
 
       confetti({
-        particleCount: 100,
-        spread: 70,
+        particleCount: 120,
+        spread: 80,
         origin: { y: 0.6 },
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error generating consolidated DOCX:', err);
-      alert('Ocurrió un error al exportar el archivo DOCX.');
+      alert('Ocurrió un error al exportar el archivo DOCX consolidado: ' + (err.message || ''));
     } finally {
-      setIsExporting(false);
+      setIsExportingAll(false);
     }
   };
 
@@ -294,6 +332,8 @@ export default function HomePage() {
               onUpdateStudent={handleUpdateStudent}
               onDeleteStudent={handleDeleteStudent}
               onAddStudent={handleAddStudent}
+              onExportSingle={handleExportSingle}
+              onExportAll={handleExportAll}
             />
           </div>
         )}
@@ -329,6 +369,7 @@ export default function HomePage() {
                 showGrid={showGrid}
                 fieldPositions={fieldPositions}
                 onUpdateFieldPositions={setFieldPositions}
+                onExportStudent={withBg => handleExportSingle(selectedStudentIndex, withBg)}
               />
             </div>
 
@@ -353,8 +394,10 @@ export default function HomePage() {
         students={students}
         currentIndex={selectedStudentIndex}
         onSelectStudent={setSelectedStudentIndex}
-        onExportDocx={handleExportDocx}
-        isExporting={isExporting}
+        onExportSingle={handleExportSingle}
+        onExportAll={handleExportAll}
+        isExportingSingle={isExportingSingle}
+        isExportingAll={isExportingAll}
       />
     </main>
   );
