@@ -1,7 +1,6 @@
 import PizZip from 'pizzip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
-// Inline type to avoid importing from 'use client' component (DiplomaCanvas)
 export interface FieldPosition {
   top: number;
   left: number;
@@ -53,11 +52,77 @@ const DEFAULT_PREVIEW_POSITIONS: Record<string, { top: number; left: number }> =
 const SCALE_X = 792.0 / 100.0;
 const SCALE_Y = 612.0 / 100.0;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function processParagraphNode(
+  p: any,
+  xmlDoc: any,
+  replacements: Array<[string, string]>
+) {
+  const directRuns: Element[] = [];
+  for (let c = 0; c < p.childNodes.length; c++) {
+    const child = p.childNodes.item(c) as Element;
+    if (child && child.nodeName === 'w:r') {
+      directRuns.push(child);
+    }
+  }
+
+  if (directRuns.length === 0) return;
+
+  let directText = '';
+  for (const r of directRuns) {
+    const ts = r.getElementsByTagName('w:t');
+    for (let tIdx = 0; tIdx < ts.length; tIdx++) {
+      directText += ts[tIdx].textContent || '';
+    }
+  }
+
+  if (!directText.trim()) return;
+  const directNorm = stripAccents(directText.toUpperCase());
+
+  for (const [targetStr, replacementStr] of replacements) {
+    if (!replacementStr) continue;
+    const targetNorm = stripAccents(targetStr.toUpperCase());
+
+    if (directNorm.includes(targetNorm)) {
+      const startIdx = directNorm.indexOf(targetNorm);
+      const endIdx = startIdx + targetNorm.length;
+      const newFullText = directText.substring(0, startIdx) + replacementStr + directText.substring(endIdx);
+
+      let tElem = directRuns[0].getElementsByTagName('w:t')[0];
+      if (!tElem) {
+        tElem = xmlDoc.createElement('w:t');
+        directRuns[0].appendChild(tElem);
+      }
+      tElem.setAttribute('xml:space', 'preserve');
+      tElem.textContent = newFullText;
+
+      let rPrElem = directRuns[0].getElementsByTagName('w:rPr')[0];
+      if (!rPrElem) {
+        rPrElem = xmlDoc.createElement('w:rPr');
+        directRuns[0].insertBefore(rPrElem, directRuns[0].firstChild);
+      }
+      let bElem = rPrElem.getElementsByTagName('w:b')[0];
+      if (!bElem) {
+        bElem = xmlDoc.createElement('w:b');
+        rPrElem.appendChild(bElem);
+      }
+
+      for (let rIdx = 1; rIdx < directRuns.length; rIdx++) {
+        const ts = directRuns[rIdx].getElementsByTagName('w:t');
+        for (let tIdx = 0; tIdx < ts.length; tIdx++) {
+          ts[tIdx].textContent = '';
+        }
+      }
+      break;
+    }
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function processSingleStudentDom(
   rawXml: string,
   studentData: Record<string, any>,
   fieldPositions: Record<string, FieldPosition> = {}
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   const domParser = new DOMParser();
   const xmlDoc = domParser.parseFromString(rawXml, 'text/xml');
@@ -142,6 +207,7 @@ export function processSingleStudentDom(
   }
   if (coord_nom) {
     replacements.push(['JOSÉ ALBERTO RUÍZ ÁLVAREZ', coord_nom]);
+    replacements.push(['JOSÉ ALBERTO RUÍZ ÀLVAREZ', coord_nom]);
     replacements.push(['JOSE ALBERTO RUIZ ALVAREZ', coord_nom]);
   }
   if (func_nom) {
@@ -158,47 +224,29 @@ export function processSingleStudentDom(
   if (titulo_nuevo) replacements.push(['BACHILLER', titulo_nuevo]);
   if (ano_egreso_nuevo) replacements.push(['2026', ano_egreso_nuevo]);
 
-  const paragraphs = xmlDoc.getElementsByTagName('w:p');
-  for (let i = 0; i < paragraphs.length; i++) {
-    const p = paragraphs[i];
-    const pText = p.textContent || '';
-    const pNorm = stripAccents(pText.toUpperCase());
+  // A. Process all paragraphs inside <w:txbxContent> (VML textboxes)
+  const txbxContents = xmlDoc.getElementsByTagName('w:txbxContent');
+  for (let t = 0; t < txbxContents.length; t++) {
+    const txbxP = txbxContents[t].getElementsByTagName('w:p');
+    for (let pIdx = 0; pIdx < txbxP.length; pIdx++) {
+      processParagraphNode(txbxP[pIdx], xmlDoc, replacements);
+    }
+  }
 
-    for (const [targetStr, replacementStr] of replacements) {
-      if (!replacementStr) continue;
-      const targetNorm = stripAccents(targetStr.toUpperCase());
-
-      if (pNorm.includes(targetNorm)) {
-        const runs = p.getElementsByTagName('w:r');
-        if (runs.length > 0) {
-          let tElem = runs[0].getElementsByTagName('w:t')[0];
-          if (!tElem) {
-            tElem = xmlDoc.createElement('w:t');
-            runs[0].appendChild(tElem);
-          }
-          tElem.setAttribute('xml:space', 'preserve');
-          tElem.textContent = replacementStr;
-
-          let rPrElem = runs[0].getElementsByTagName('w:rPr')[0];
-          if (!rPrElem) {
-            rPrElem = xmlDoc.createElement('w:rPr');
-            runs[0].insertBefore(rPrElem, runs[0].firstChild);
-          }
-          let bElem = rPrElem.getElementsByTagName('w:b')[0];
-          if (!bElem) {
-            bElem = xmlDoc.createElement('w:b');
-            rPrElem.appendChild(bElem);
-          }
-
-          for (let rIdx = 1; rIdx < runs.length; rIdx++) {
-            const otElem = runs[rIdx].getElementsByTagName('w:t')[0];
-            if (otElem) {
-              otElem.textContent = '';
-            }
-          }
-        }
+  // B. Process all paragraphs outside textboxes
+  const bodyPs = xmlDoc.getElementsByTagName('w:p');
+  for (let pIdx = 0; pIdx < bodyPs.length; pIdx++) {
+    let parent = bodyPs[pIdx].parentNode;
+    let insideTxbx = false;
+    while (parent) {
+      if (parent.nodeName === 'w:txbxContent') {
+        insideTxbx = true;
         break;
       }
+      parent = parent.parentNode;
+    }
+    if (!insideTxbx) {
+      processParagraphNode(bodyPs[pIdx], xmlDoc, replacements);
     }
   }
 

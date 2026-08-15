@@ -11,12 +11,12 @@ const templatePath = path.join(__dirname, 'plantillas', 'JESUS MANUEL VARGAS NOG
 const docxBuffer = fs.readFileSync(templatePath);
 const zip = new PizZip(docxBuffer);
 const rawXml = zip.file('word/document.xml').asText();
+
 const domParser = new DOMParser();
 const xmlDoc = domParser.parseFromString(rawXml, 'text/xml');
 
-// Simulate exact payload from frontend for student 2
 const studentData = {
-  estudiante_nombre: 'REINALDO DAVID GARCÍA CAMPOS',
+  estudiante_nombre: 'REINALDO DAVID GARCÍA CAMPOS (FULL POPULATED)',
   estudiante_cedula: 'V 32.666.328',
   plantel: 'COMPLEJO EDUCATIVO RUÍZ PINEDA I',
   codigo_plantel: 'S0163D0814',
@@ -34,91 +34,123 @@ const studentData = {
   firmante_funcionario_cedula: 'V 9.445.225',
 };
 
-// Build replacements exactly like native-docx-exporter.ts does
-const nombre_nuevo = studentData.estudiante_nombre || '';
-const cedula_nueva = studentData.estudiante_cedula || '';
-const plantel_nuevo = studentData.plantel || '';
-const codigo_nuevo = studentData.codigo_plantel || '';
-const titulo_nuevo = studentData.titulo_otorgado || '';
-const plan_nuevo = studentData.plan_estudio || '';
-const lugar_nac_nuevo = studentData.lugar_nacimiento || '';
-const fecha_nac_nueva = studentData.fecha_nacimiento || '';
-const expedicion_nueva = studentData.lugar_fecha_expedicion || '';
-const ano_egreso_nuevo = String(studentData['año_egreso'] || '2026');
-const director_nom = studentData.firmante_director_nombre || 'JOHN DANIEL ZAPATA MIRELES';
-const director_ci = studentData.firmante_director_cedula || 'V 18.361.899';
-const coord_nom = studentData.firmante_coordinador_nombre || 'JOSÉ ALBERTO RUÍZ ÁLVAREZ';
-const coord_ci = studentData.firmante_coordinador_cedula || 'V 13.601.460';
-const func_nom = studentData.firmante_funcionario_nombre || 'WILMER JOSÉ LUGO RODRÍGUEZ';
-const func_ci = studentData.firmante_funcionario_cedula || 'V 9.445.225';
+const replacements = [
+  ['CARABOBO, VALENCIA, 17 DE JULIO DE 2026', studentData.lugar_fecha_expedicion],
+  ['VENEZUELA, CARABOBO, MUNICIPIO NAGUANAGUA', studentData.lugar_nacimiento],
+  ['EDUCACIÓN MEDIA GENERAL, 31059', studentData.plan_estudio],
+  ['EDUCACION MEDIA GENERAL, 31059', studentData.plan_estudio],
+  ['JESUS MANUEL VARGAS NOGUERA', studentData.estudiante_nombre],
+  ['COMPLEJO EDUCATIVO RUÍZ PINEDA I', studentData.plantel],
+  ['COMPLEJO EDUCATIVO RUIZ PINEDA I', studentData.plantel],
+  ['JOSÉ ALBERTO RUÍZ ÁLVAREZ', studentData.firmante_coordinador_nombre],
+  ['JOSÉ ALBERTO RUÍZ ÀLVAREZ', studentData.firmante_coordinador_nombre],
+  ['JOSE ALBERTO RUIZ ALVAREZ', studentData.firmante_coordinador_nombre],
+  ['WILMER JOSÉ LUGO RODRÍGUEZ', studentData.firmante_funcionario_nombre],
+  ['WILMER JOSE LUGO RODRIGUEZ', studentData.firmante_funcionario_nombre],
+  ['JOHN DANIEL ZAPATA MIRELES', studentData.firmante_director_nombre],
+  ['09 DE JULIO DE 2009', studentData.fecha_nacimiento],
+  ['V 33.479.449', studentData.estudiante_cedula],
+  ['V 18.361.899', studentData.firmante_director_cedula],
+  ['V 13.601.460', studentData.firmante_coordinador_cedula],
+  ['V 9.445.225', studentData.firmante_funcionario_cedula],
+  ['S0163D0814', studentData.codigo_plantel],
+  ['BACHILLER', studentData.titulo_otorgado],
+  ['2026', studentData['año_egreso']],
+];
 
-const replacements = [];
-if (expedicion_nueva) replacements.push(['CARABOBO, VALENCIA, 17 DE JULIO DE 2026', expedicion_nueva]);
-if (lugar_nac_nuevo) replacements.push(['VENEZUELA, CARABOBO, MUNICIPIO NAGUANAGUA', lugar_nac_nuevo]);
-if (plan_nuevo) {
-  replacements.push(['EDUCACIÓN MEDIA GENERAL, 31059', plan_nuevo]);
-  replacements.push(['EDUCACION MEDIA GENERAL, 31059', plan_nuevo]);
-}
-if (nombre_nuevo) replacements.push(['JESUS MANUEL VARGAS NOGUERA', nombre_nuevo]);
-if (plantel_nuevo) {
-  replacements.push(['COMPLEJO EDUCATIVO RUÍZ PINEDA I', plantel_nuevo]);
-  replacements.push(['COMPLEJO EDUCATIVO RUIZ PINEDA I', plantel_nuevo]);
-}
-if (coord_nom) {
-  replacements.push(['JOSÉ ALBERTO RUÍZ ÁLVAREZ', coord_nom]);
-  replacements.push(['JOSE ALBERTO RUIZ ALVAREZ', coord_nom]);
-}
-if (func_nom) {
-  replacements.push(['WILMER JOSÉ LUGO RODRÍGUEZ', func_nom]);
-  replacements.push(['WILMER JOSE LUGO RODRIGUEZ', func_nom]);
-}
-if (director_nom) replacements.push(['JOHN DANIEL ZAPATA MIRELES', director_nom]);
-if (fecha_nac_nueva) replacements.push(['09 DE JULIO DE 2009', fecha_nac_nueva]);
-if (cedula_nueva) replacements.push(['V 33.479.449', cedula_nueva]);
-if (director_ci) replacements.push(['V 18.361.899', director_ci]);
-if (coord_ci) replacements.push(['V 13.601.460', coord_ci]);
-if (func_ci) replacements.push(['V 9.445.225', func_ci]);
-if (codigo_nuevo) replacements.push(['S0163D0814', codigo_nuevo]);
-if (titulo_nuevo) replacements.push(['BACHILLER', titulo_nuevo]);
-if (ano_egreso_nuevo) replacements.push(['2026', ano_egreso_nuevo]);
+// Helper to replace text in a specific paragraph using direct child runs ONLY
+function processParagraph(p) {
+  const directRuns = [];
+  for (let c = 0; c < p.childNodes.length; c++) {
+    const child = p.childNodes.item(c);
+    if (child && child.nodeName === 'w:r') {
+      directRuns.push(child);
+    }
+  }
 
-// Test matching against ALL paragraphs
-const paragraphs = xmlDoc.getElementsByTagName('w:p');
-let matchCount = 0;
-for (let i = 0; i < paragraphs.length; i++) {
-  const p = paragraphs[i];
-  const pText = (p.textContent || '').trim();
-  if (!pText) continue;
-  const pNorm = stripAccents(pText.toUpperCase());
+  if (directRuns.length === 0) return;
+
+  let directText = '';
+  for (const r of directRuns) {
+    const ts = r.getElementsByTagName('w:t');
+    for (let tIdx = 0; tIdx < ts.length; tIdx++) {
+      directText += ts[tIdx].textContent || '';
+    }
+  }
+
+  if (!directText.trim()) return;
+  const directNorm = stripAccents(directText.toUpperCase());
 
   for (const [targetStr, replacementStr] of replacements) {
+    if (!replacementStr) continue;
     const targetNorm = stripAccents(targetStr.toUpperCase());
-    if (pNorm.includes(targetNorm)) {
-      const runs = p.getElementsByTagName('w:r');
-      console.log(`MATCH P[${i}]: "${targetStr}" -> "${replacementStr}" (${runs.length} runs)`);
-      matchCount++;
+
+    if (directNorm.includes(targetNorm)) {
+      const startIdx = directNorm.indexOf(targetNorm);
+      const endIdx = startIdx + targetNorm.length;
+      const newFullText = directText.substring(0, startIdx) + replacementStr + directText.substring(endIdx);
+
+      let tElem = directRuns[0].getElementsByTagName('w:t')[0];
+      if (!tElem) {
+        tElem = xmlDoc.createElement('w:t');
+        directRuns[0].appendChild(tElem);
+      }
+      tElem.setAttribute('xml:space', 'preserve');
+      tElem.textContent = newFullText;
+
+      let rPrElem = directRuns[0].getElementsByTagName('w:rPr')[0];
+      if (!rPrElem) {
+        rPrElem = xmlDoc.createElement('w:rPr');
+        directRuns[0].insertBefore(rPrElem, directRuns[0].firstChild);
+      }
+      let bElem = rPrElem.getElementsByTagName('w:b')[0];
+      if (!bElem) {
+        bElem = xmlDoc.createElement('w:b');
+        rPrElem.appendChild(bElem);
+      }
+
+      for (let rIdx = 1; rIdx < directRuns.length; rIdx++) {
+        const ts = directRuns[rIdx].getElementsByTagName('w:t');
+        for (let tIdx = 0; tIdx < ts.length; tIdx++) {
+          ts[tIdx].textContent = '';
+        }
+      }
       break;
     }
   }
 }
-console.log(`\nTotal paragraph matches: ${matchCount} / ${paragraphs.length} paragraphs`);
 
-// Also test matching against VML textbox content
-const textboxes = xmlDoc.getElementsByTagName('v:textbox');
-let tbMatchCount = 0;
-for (let i = 0; i < textboxes.length; i++) {
-  const tb = textboxes[i];
-  const tbText = (tb.textContent || '').trim();
-  if (!tbText) continue;
-  const tbNorm = stripAccents(tbText.toUpperCase());
-
-  for (const [targetStr, replacementStr] of replacements) {
-    const targetNorm = stripAccents(targetStr.toUpperCase());
-    if (tbNorm.includes(targetNorm)) {
-      console.log(`MATCH TB[${i}]: "${targetStr}" -> "${replacementStr}"`);
-      tbMatchCount++;
-      break;
-    }
+// 1. Process all paragraphs inside <v:txbxContent> (VML textboxes)
+const txbxContents = xmlDoc.getElementsByTagName('w:txbxContent');
+for (let t = 0; t < txbxContents.length; t++) {
+  const txbxP = txbxContents[t].getElementsByTagName('w:p');
+  for (let pIdx = 0; pIdx < txbxP.length; pIdx++) {
+    processParagraph(txbxP[pIdx]);
   }
 }
-console.log(`\nTotal textbox matches: ${tbMatchCount} / ${textboxes.length} textboxes`);
+
+// 2. Process all paragraphs in body
+const bodyPs = xmlDoc.getElementsByTagName('w:p');
+for (let pIdx = 0; pIdx < bodyPs.length; pIdx++) {
+  // Only process if paragraph is not inside a txbxContent
+  let parent = bodyPs[pIdx].parentNode;
+  let insideTxbx = false;
+  while (parent) {
+    if (parent.nodeName === 'w:txbxContent') {
+      insideTxbx = true;
+      break;
+    }
+    parent = parent.parentNode;
+  }
+  if (!insideTxbx) {
+    processParagraph(bodyPs[pIdx]);
+  }
+}
+
+const xmlSerializer = new XMLSerializer();
+const finalXml = xmlSerializer.serializeToString(xmlDoc);
+
+zip.file('word/document.xml', finalXml);
+const outBuffer = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+fs.writeFileSync(path.join(__dirname, 'test_full_populated.docx'), outBuffer);
+console.log("Saved test_full_populated.docx (%d bytes)!", outBuffer.length);
