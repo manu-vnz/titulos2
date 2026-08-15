@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const PizZip = require('pizzip');
+const { DOMParser, XMLSerializer } = require('@xmldom/xmldom');
 
 function stripAccents(str) {
   return str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : '';
@@ -47,15 +48,33 @@ const DEFAULT_PREVIEW_POSITIONS = {
 const SCALE_X = 792.0 / 100.0;
 const SCALE_Y = 612.0 / 100.0;
 
-function processSingleStudentXml(baseXml, studentData, fieldPositions = {}) {
-  let xml = baseXml;
+function processSingleStudentDom(rawXml, studentData, fieldPositions = {}) {
+  const domParser = new DOMParser();
+  const xmlDoc = domParser.parseFromString(rawXml, 'text/xml');
 
-  // 1. Process VML position deltas
+  // 1. Process VML shape positions
   if (fieldPositions && Object.keys(fieldPositions).length > 0) {
-    for (const [fieldKey, searchStr] of Object.entries(FIELD_TO_TEMPLATE_TEXT)) {
-      if (!fieldPositions[fieldKey]) continue;
-      const newPos = fieldPositions[fieldKey];
-      const defPos = DEFAULT_PREVIEW_POSITIONS[fieldKey];
+    const shapes = xmlDoc.getElementsByTagName('v:shape');
+    for (let i = 0; i < shapes.length; i++) {
+      const shape = shapes[i];
+      const style = shape.getAttribute('style') || '';
+      if (!style) continue;
+
+      const shapeText = shape.textContent || '';
+      if (!shapeText.trim()) continue;
+
+      let matchedField = null;
+      for (const [fieldKey, searchStr] of Object.entries(FIELD_TO_TEMPLATE_TEXT)) {
+        if (stripAccents(shapeText.toUpperCase()).includes(stripAccents(searchStr.toUpperCase()))) {
+          matchedField = fieldKey;
+          break;
+        }
+      }
+
+      if (!matchedField || !fieldPositions[matchedField]) continue;
+
+      const newPos = fieldPositions[matchedField];
+      const defPos = DEFAULT_PREVIEW_POSITIONS[matchedField];
       if (!defPos) continue;
 
       const deltaTopPct = newPos.top - defPos.top;
@@ -65,28 +84,22 @@ function processSingleStudentXml(baseXml, studentData, fieldPositions = {}) {
       const deltaTopPt = deltaTopPct * SCALE_Y;
       const deltaLeftPt = deltaLeftPct * SCALE_X;
 
-      const shapeRegex = new RegExp(`(<v:shape[^>]*style="([^"]*)"[^>]*>([\\s\\S]*?)</v:shape>)`, 'gi');
-      xml = xml.replace(shapeRegex, (match, shapeTag, styleAttr, innerContent) => {
-        if (stripAccents(innerContent.toUpperCase()).includes(stripAccents(searchStr.toUpperCase()))) {
-          const mlMatch = styleAttr.match(/margin-left:\s*(-?[\d.]+)pt/i);
-          const mtMatch = styleAttr.match(/margin-top:\s*(-?[\d.]+)pt/i);
-          if (mlMatch && mtMatch) {
-            const currentMl = parseFloat(mlMatch[1]);
-            const currentMt = parseFloat(mtMatch[1]);
-            const newMl = Math.max(0, currentMl + deltaLeftPt);
-            const newMt = Math.max(0, currentMt + deltaTopPt);
+      const mlMatch = style.match(/margin-left:\s*(-?[\d.]+)pt/i);
+      const mtMatch = style.match(/margin-top:\s*(-?[\d.]+)pt/i);
+      if (mlMatch && mtMatch) {
+        const currentMl = parseFloat(mlMatch[1]);
+        const currentMt = parseFloat(mtMatch[1]);
+        const newMl = Math.max(0, currentMl + deltaLeftPt);
+        const newMt = Math.max(0, currentMt + deltaTopPt);
 
-            let newStyle = styleAttr.replace(/margin-left:\s*-?[\d.]+pt/i, `margin-left:${newMl.toFixed(2)}pt`);
-            newStyle = newStyle.replace(/margin-top:\s*-?[\d.]+pt/i, `margin-top:${newMt.toFixed(2)}pt`);
-            return match.replace(styleAttr, newStyle);
-          }
-        }
-        return match;
-      });
+        let newStyle = style.replace(/margin-left:\s*-?[\d.]+pt/i, `margin-left:${newMl.toFixed(2)}pt`);
+        newStyle = newStyle.replace(/margin-top:\s*-?[\d.]+pt/i, `margin-top:${newMt.toFixed(2)}pt`);
+        shape.setAttribute('style', newStyle);
+      }
     }
   }
 
-  // 2. Build text replacements
+  // 2. Perform text replacements
   const nombre_nuevo = studentData.estudiante_nombre || studentData.nombre_estudiante || studentData.nombre || '';
   const cedula_nueva = studentData.estudiante_cedula || studentData.cedula_estudiante || studentData.cedula || '';
   const plantel_nuevo = studentData.plantel || studentData.zona_educativa_plantel || '';
@@ -135,100 +148,124 @@ function processSingleStudentXml(baseXml, studentData, fieldPositions = {}) {
   if (titulo_nuevo) replacements.push(['BACHILLER', titulo_nuevo]);
   if (ano_egreso_nuevo) replacements.push(['2026', ano_egreso_nuevo]);
 
-  for (const [targetStr, replacementStr] of replacements) {
-    if (!replacementStr) continue;
-    const targetNorm = stripAccents(targetStr.toUpperCase());
+  const paragraphs = xmlDoc.getElementsByTagName('w:p');
+  for (let i = 0; i < paragraphs.length; i++) {
+    const p = paragraphs[i];
+    const pText = p.textContent || '';
+    const pNorm = stripAccents(pText.toUpperCase());
 
-    const pRegex = /<w:p\b[^>]*>[\s\S]*?<\/w:p>/gi;
-    xml = xml.replace(pRegex, (pXml) => {
-      const pText = pXml.replace(/<[^>]+>/g, '');
-      const pNorm = stripAccents(pText.toUpperCase());
+    for (const [targetStr, replacementStr] of replacements) {
+      if (!replacementStr) continue;
+      const targetNorm = stripAccents(targetStr.toUpperCase());
 
       if (pNorm.includes(targetNorm)) {
-        let runReplaced = false;
-        return pXml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/gi, (rXml) => {
-          if (!runReplaced) {
-            runReplaced = true;
-            const boldProp = rXml.includes('<w:rPr>') ? rXml.replace('<w:rPr>', '<w:rPr><w:b/>') : '<w:rPr><w:b/></w:rPr>';
-            return `<w:r>${boldProp}<w:t xml:space="preserve">${replacementStr}</w:t></w:r>`;
+        const runs = p.getElementsByTagName('w:r');
+        if (runs.length > 0) {
+          let tElem = runs[0].getElementsByTagName('w:t')[0];
+          if (!tElem) {
+            tElem = xmlDoc.createElement('w:t');
+            runs[0].appendChild(tElem);
           }
-          return '';
-        });
-      }
-      return pXml;
-    });
-  }
+          tElem.setAttribute('xml:space', 'preserve');
+          tElem.textContent = replacementStr;
 
-  // Ensure bold on all runs
-  xml = xml.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/gi, (match, attrs, content) => {
-    if (content.includes('<w:t') && !content.includes('<w:b/>')) {
-      if (content.includes('<w:rPr>')) {
-        return `<w:r${attrs}>${content.replace('<w:rPr>', '<w:rPr><w:b/>')}</w:r>`;
-      } else {
-        return `<w:r${attrs}><w:rPr><w:b/></w:rPr>${content}</w:r>`;
+          let rPrElem = runs[0].getElementsByTagName('w:rPr')[0];
+          if (!rPrElem) {
+            rPrElem = xmlDoc.createElement('w:rPr');
+            runs[0].insertBefore(rPrElem, runs[0].firstChild);
+          }
+          let bElem = rPrElem.getElementsByTagName('w:b')[0];
+          if (!bElem) {
+            bElem = xmlDoc.createElement('w:b');
+            rPrElem.appendChild(bElem);
+          }
+
+          for (let rIdx = 1; rIdx < runs.length; rIdx++) {
+            const otElem = runs[rIdx].getElementsByTagName('w:t')[0];
+            if (otElem) {
+              otElem.textContent = '';
+            }
+          }
+        }
+        break;
       }
     }
-    return match;
-  });
+  }
 
-  return xml;
+  return xmlDoc;
 }
 
-function generateNativeDocx(templateBuffer, students, fieldPositions = {}) {
+function generateNativeConsolidatedDocx(templateBuffer, students, fieldPositions = {}) {
   if (!students || students.length === 0) {
     throw new Error('La lista de estudiantes está vacía.');
   }
 
   const zip = new PizZip(templateBuffer);
-  const baseDocumentXml = zip.file('word/document.xml').asText();
+  const rawXml = zip.file('word/document.xml').asText();
+
+  const xmlSerializer = new XMLSerializer();
 
   if (students.length === 1) {
-    const finalXml = processSingleStudentXml(baseDocumentXml, students[0], fieldPositions);
+    const xmlDoc = processSingleStudentDom(rawXml, students[0], fieldPositions);
+    const finalXml = xmlSerializer.serializeToString(xmlDoc);
     zip.file('word/document.xml', finalXml);
     return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
 
-  // For multi-students: process student 0 as master
-  let masterXml = processSingleStudentXml(baseDocumentXml, students[0], fieldPositions);
+  // Multi-student consolidation
+  const masterDoc = processSingleStudentDom(rawXml, students[0], fieldPositions);
+  const masterBody = masterDoc.getElementsByTagName('w:body')[0];
 
-  // Extract master section properties (<w:sectPr ...> </w:sectPr>) before final </w:body>
-  const sectPrMatch = masterXml.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/i);
-  const masterSectPr = sectPrMatch ? sectPrMatch[0] : '';
-  const nextPageSectPr = masterSectPr.includes('<w:type')
-    ? masterSectPr.replace(/<w:type\s+w:val="[^"]*"\/>/i, '<w:type w:val="nextPage"/>')
-    : masterSectPr.replace('</w:sectPr>', '<w:type w:val="nextPage"/></w:sectPr>');
+  // Get master final section properties element (<w:sectPr>)
+  const masterSectPrs = masterBody.getElementsByTagName('w:sectPr');
+  const finalSectPr = masterSectPrs.length > 0 ? masterSectPrs[masterSectPrs.length - 1] : null;
 
-  // Split masterXml at </w:body>
-  const bodyEndIdx = masterXml.lastIndexOf('</w:body>');
-  let masterBodyContent = masterXml.substring(0, bodyEndIdx);
-  const masterBodySuffix = masterXml.substring(bodyEndIdx);
+  for (let sIdx = 1; sIdx < students.length; sIdx++) {
+    const subDoc = processSingleStudentDom(rawXml, students[sIdx], fieldPositions);
+    const subBody = subDoc.getElementsByTagName('w:body')[0];
 
-  for (let i = 1; i < students.length; i++) {
-    const subXml = processSingleStudentXml(baseDocumentXml, students[i], fieldPositions);
-    
-    // Extract inner body content of subXml (between <w:body> and </w:body>, removing its final <w:sectPr>)
-    const subBodyStart = subXml.indexOf('<w:body>') + 8;
-    const subBodyEnd = subXml.lastIndexOf('</w:body>');
-    let subContent = subXml.substring(subBodyStart, subBodyEnd);
-    subContent = subContent.replace(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/gi, '');
+    // Create section break paragraph (<w:p><w:pPr><w:sectPr><w:type w:val="nextPage"/></w:sectPr></w:p></w:p>)
+    const breakP = masterDoc.createElement('w:p');
+    const breakPPr = masterDoc.createElement('w:pPr');
+    const breakSectPr = masterDoc.createElement('w:sectPr');
+    const breakType = masterDoc.createElement('w:type');
+    breakType.setAttribute('w:val', 'nextPage');
+    breakSectPr.appendChild(breakType);
+    breakPPr.appendChild(breakSectPr);
+    breakP.appendChild(breakPPr);
 
-    // Append section break + subContent
-    const sectionBreak = `<w:p><w:pPr>${nextPageSectPr}</w:pPr></w:p>`;
-    masterBodyContent += sectionBreak + subContent;
+    if (finalSectPr) {
+      masterBody.insertBefore(breakP, finalSectPr);
+    } else {
+      masterBody.appendChild(breakP);
+    }
+
+    // Append child nodes of subBody (except final sectPr)
+    const childNodes = subBody.childNodes;
+    for (let c = 0; c < childNodes.length; c++) {
+      const node = childNodes.item(c);
+      if (node.nodeName === 'w:sectPr') continue;
+      const importedNode = masterDoc.importNode(node, true);
+      if (finalSectPr) {
+        masterBody.insertBefore(importedNode, finalSectPr);
+      } else {
+        masterBody.appendChild(importedNode);
+      }
+    }
   }
 
-  const finalDocumentXml = masterBodyContent + masterBodySuffix;
-  zip.file('word/document.xml', finalDocumentXml);
+  const finalXml = xmlSerializer.serializeToString(masterDoc);
+  zip.file('word/document.xml', finalXml);
   return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-// Test multi-student export
+// Test multi-student XMLDOM generation
 const templateBuffer = fs.readFileSync(path.join(__dirname, 'plantillas', 'JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx'));
 const testStudents = [
-  { estudiante_nombre: 'STUDENT 1 (NODE NATIVE)', estudiante_cedula: 'V 11.111.111' },
-  { estudiante_nombre: 'STUDENT 2 (NODE NATIVE)', estudiante_cedula: 'V 22.222.222' }
+  { estudiante_nombre: 'MANUELA ZULIMAR RAMOS PUERCHAMBUD', estudiante_cedula: 'V 33.479.449' },
+  { estudiante_nombre: 'JHAN ALEJANDRO BORJES AGUIAR', estudiante_cedula: 'V 32.666.328' }
 ];
 
-const multiBuffer = generateNativeDocx(templateBuffer, testStudents);
-fs.writeFileSync(path.join(__dirname, 'test_multi_node_output.docx'), multiBuffer);
-console.log("Successfully generated multi-page test_multi_node_output.docx (%d bytes)!", multiBuffer.length);
+const outBuf = generateNativeConsolidatedDocx(templateBuffer, testStudents);
+fs.writeFileSync(path.join(__dirname, 'test_xmldom_multi.docx'), outBuf);
+console.log("Generated test_xmldom_multi.docx (%d bytes)!", outBuf.length);

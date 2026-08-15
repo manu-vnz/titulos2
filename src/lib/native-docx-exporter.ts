@@ -1,6 +1,5 @@
-import fs from 'fs';
-import path from 'path';
 import PizZip from 'pizzip';
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { FieldPosition } from '@/components/DiplomaCanvas';
 
 function stripAccents(str: string): string {
@@ -48,19 +47,38 @@ const DEFAULT_PREVIEW_POSITIONS: Record<string, { top: number; left: number }> =
 const SCALE_X = 792.0 / 100.0;
 const SCALE_Y = 612.0 / 100.0;
 
-export function processSingleStudentXml(
-  baseXml: string,
+export function processSingleStudentDom(
+  rawXml: string,
   studentData: Record<string, any>,
   fieldPositions: Record<string, FieldPosition> = {}
-): string {
-  let xml = baseXml;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  const domParser = new DOMParser();
+  const xmlDoc = domParser.parseFromString(rawXml, 'text/xml');
 
-  // 1. Process VML position deltas
+  // 1. Process VML shape positions via DOM
   if (fieldPositions && Object.keys(fieldPositions).length > 0) {
-    for (const [fieldKey, searchStr] of Object.entries(FIELD_TO_TEMPLATE_TEXT)) {
-      if (!fieldPositions[fieldKey]) continue;
-      const newPos = fieldPositions[fieldKey];
-      const defPos = DEFAULT_PREVIEW_POSITIONS[fieldKey];
+    const shapes = xmlDoc.getElementsByTagName('v:shape');
+    for (let i = 0; i < shapes.length; i++) {
+      const shape = shapes[i];
+      const style = shape.getAttribute('style') || '';
+      if (!style) continue;
+
+      const shapeText = shape.textContent || '';
+      if (!shapeText.trim()) continue;
+
+      let matchedField: string | null = null;
+      for (const [fieldKey, searchStr] of Object.entries(FIELD_TO_TEMPLATE_TEXT)) {
+        if (stripAccents(shapeText.toUpperCase()).includes(stripAccents(searchStr.toUpperCase()))) {
+          matchedField = fieldKey;
+          break;
+        }
+      }
+
+      if (!matchedField || !fieldPositions[matchedField]) continue;
+
+      const newPos = fieldPositions[matchedField];
+      const defPos = DEFAULT_PREVIEW_POSITIONS[matchedField];
       if (!defPos) continue;
 
       const deltaTopPct = newPos.top - defPos.top;
@@ -70,24 +88,18 @@ export function processSingleStudentXml(
       const deltaTopPt = deltaTopPct * SCALE_Y;
       const deltaLeftPt = deltaLeftPct * SCALE_X;
 
-      const shapeRegex = new RegExp(`(<v:shape[^>]*style="([^"]*)"[^>]*>([\\s\\S]*?)</v:shape>)`, 'gi');
-      xml = xml.replace(shapeRegex, (match, shapeTag, styleAttr, innerContent) => {
-        if (stripAccents(innerContent.toUpperCase()).includes(stripAccents(searchStr.toUpperCase()))) {
-          const mlMatch = styleAttr.match(/margin-left:\s*(-?[\d.]+)pt/i);
-          const mtMatch = styleAttr.match(/margin-top:\s*(-?[\d.]+)pt/i);
-          if (mlMatch && mtMatch) {
-            const currentMl = parseFloat(mlMatch[1]);
-            const currentMt = parseFloat(mtMatch[1]);
-            const newMl = Math.max(0, currentMl + deltaLeftPt);
-            const newMt = Math.max(0, currentMt + deltaTopPt);
+      const mlMatch = style.match(/margin-left:\s*(-?[\d.]+)pt/i);
+      const mtMatch = style.match(/margin-top:\s*(-?[\d.]+)pt/i);
+      if (mlMatch && mtMatch) {
+        const currentMl = parseFloat(mlMatch[1]);
+        const currentMt = parseFloat(mtMatch[1]);
+        const newMl = Math.max(0, currentMl + deltaLeftPt);
+        const newMt = Math.max(0, currentMt + deltaTopPt);
 
-            let newStyle = styleAttr.replace(/margin-left:\s*-?[\d.]+pt/i, `margin-left:${newMl.toFixed(2)}pt`);
-            newStyle = newStyle.replace(/margin-top:\s*-?[\d.]+pt/i, `margin-top:${newMt.toFixed(2)}pt`);
-            return match.replace(styleAttr, newStyle);
-          }
-        }
-        return match;
-      });
+        let newStyle = style.replace(/margin-left:\s*-?[\d.]+pt/i, `margin-left:${newMl.toFixed(2)}pt`);
+        newStyle = newStyle.replace(/margin-top:\s*-?[\d.]+pt/i, `margin-top:${newMt.toFixed(2)}pt`);
+        shape.setAttribute('style', newStyle);
+      }
     }
   }
 
@@ -140,43 +152,51 @@ export function processSingleStudentXml(
   if (titulo_nuevo) replacements.push(['BACHILLER', titulo_nuevo]);
   if (ano_egreso_nuevo) replacements.push(['2026', ano_egreso_nuevo]);
 
-  for (const [targetStr, replacementStr] of replacements) {
-    if (!replacementStr) continue;
-    const targetNorm = stripAccents(targetStr.toUpperCase());
+  const paragraphs = xmlDoc.getElementsByTagName('w:p');
+  for (let i = 0; i < paragraphs.length; i++) {
+    const p = paragraphs[i];
+    const pText = p.textContent || '';
+    const pNorm = stripAccents(pText.toUpperCase());
 
-    const pRegex = /<w:p\b[^>]*>[\s\S]*?<\/w:p>/gi;
-    xml = xml.replace(pRegex, (pXml) => {
-      const pText = pXml.replace(/<[^>]+>/g, '');
-      const pNorm = stripAccents(pText.toUpperCase());
+    for (const [targetStr, replacementStr] of replacements) {
+      if (!replacementStr) continue;
+      const targetNorm = stripAccents(targetStr.toUpperCase());
 
       if (pNorm.includes(targetNorm)) {
-        let runReplaced = false;
-        return pXml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/gi, (rXml) => {
-          if (!runReplaced) {
-            runReplaced = true;
-            const boldProp = rXml.includes('<w:rPr>') ? rXml.replace('<w:rPr>', '<w:rPr><w:b/>') : '<w:rPr><w:b/></w:rPr>';
-            return `<w:r>${boldProp}<w:t xml:space="preserve">${replacementStr}</w:t></w:r>`;
+        const runs = p.getElementsByTagName('w:r');
+        if (runs.length > 0) {
+          let tElem = runs[0].getElementsByTagName('w:t')[0];
+          if (!tElem) {
+            tElem = xmlDoc.createElement('w:t');
+            runs[0].appendChild(tElem);
           }
-          return '';
-        });
-      }
-      return pXml;
-    });
-  }
+          tElem.setAttribute('xml:space', 'preserve');
+          tElem.textContent = replacementStr;
 
-  // Ensure bold on all runs with text content
-  xml = xml.replace(/<w:r\b([^>]*)>([\s\S]*?)<\/w:r>/gi, (match, attrs, content) => {
-    if (content.includes('<w:t') && !content.includes('<w:b/>')) {
-      if (content.includes('<w:rPr>')) {
-        return `<w:r${attrs}>${content.replace('<w:rPr>', '<w:rPr><w:b/>')}</w:r>`;
-      } else {
-        return `<w:r${attrs}><w:rPr><w:b/></w:rPr>${content}</w:r>`;
+          let rPrElem = runs[0].getElementsByTagName('w:rPr')[0];
+          if (!rPrElem) {
+            rPrElem = xmlDoc.createElement('w:rPr');
+            runs[0].insertBefore(rPrElem, runs[0].firstChild);
+          }
+          let bElem = rPrElem.getElementsByTagName('w:b')[0];
+          if (!bElem) {
+            bElem = xmlDoc.createElement('w:b');
+            rPrElem.appendChild(bElem);
+          }
+
+          for (let rIdx = 1; rIdx < runs.length; rIdx++) {
+            const otElem = runs[rIdx].getElementsByTagName('w:t')[0];
+            if (otElem) {
+              otElem.textContent = '';
+            }
+          }
+        }
+        break;
       }
     }
-    return match;
-  });
+  }
 
-  return xml;
+  return xmlDoc;
 }
 
 export function generateNativeConsolidatedDocx(
@@ -189,44 +209,61 @@ export function generateNativeConsolidatedDocx(
   }
 
   const zip = new PizZip(templateBuffer);
-  const baseDocumentXml = zip.file('word/document.xml')?.asText() || '';
+  const rawXml = zip.file('word/document.xml')?.asText() || '';
 
-  if (!baseDocumentXml) {
+  if (!rawXml) {
     throw new Error('No se pudo leer el archivo word/document.xml de la plantilla.');
   }
 
+  const xmlSerializer = new XMLSerializer();
+
   if (students.length === 1) {
-    const finalXml = processSingleStudentXml(baseDocumentXml, students[0], fieldPositions);
+    const xmlDoc = processSingleStudentDom(rawXml, students[0], fieldPositions);
+    const finalXml = xmlSerializer.serializeToString(xmlDoc as any);
     zip.file('word/document.xml', finalXml);
     return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
   }
 
-  // For multi-students: process student 0 as master
-  let masterXml = processSingleStudentXml(baseDocumentXml, students[0], fieldPositions);
+  // Multi-student consolidation via DOM tree merging
+  const masterDoc = processSingleStudentDom(rawXml, students[0], fieldPositions);
+  const masterBody = masterDoc.getElementsByTagName('w:body')[0];
 
-  const sectPrMatch = masterXml.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/i);
-  const masterSectPr = sectPrMatch ? sectPrMatch[0] : '';
-  const nextPageSectPr = masterSectPr.includes('<w:type')
-    ? masterSectPr.replace(/<w:type\s+w:val="[^"]*"\/>/i, '<w:type w:val="nextPage"/>')
-    : masterSectPr.replace('</w:sectPr>', '<w:type w:val="nextPage"/></w:sectPr>');
+  const masterSectPrs = masterBody.getElementsByTagName('w:sectPr');
+  const finalSectPr = masterSectPrs.length > 0 ? masterSectPrs[masterSectPrs.length - 1] : null;
 
-  const bodyEndIdx = masterXml.lastIndexOf('</w:body>');
-  let masterBodyContent = masterXml.substring(0, bodyEndIdx);
-  const masterBodySuffix = masterXml.substring(bodyEndIdx);
+  for (let sIdx = 1; sIdx < students.length; sIdx++) {
+    const subDoc = processSingleStudentDom(rawXml, students[sIdx], fieldPositions);
+    const subBody = subDoc.getElementsByTagName('w:body')[0];
 
-  for (let i = 1; i < students.length; i++) {
-    const subXml = processSingleStudentXml(baseDocumentXml, students[i], fieldPositions);
+    const breakP = masterDoc.createElement('w:p');
+    const breakPPr = masterDoc.createElement('w:pPr');
+    const breakSectPr = masterDoc.createElement('w:sectPr');
+    const breakType = masterDoc.createElement('w:type');
+    breakType.setAttribute('w:val', 'nextPage');
+    breakSectPr.appendChild(breakType);
+    breakPPr.appendChild(breakSectPr);
+    breakP.appendChild(breakPPr);
 
-    const subBodyStart = subXml.indexOf('<w:body>') + 8;
-    const subBodyEnd = subXml.lastIndexOf('</w:body>');
-    let subContent = subXml.substring(subBodyStart, subBodyEnd);
-    subContent = subContent.replace(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/gi, '');
+    if (finalSectPr) {
+      masterBody.insertBefore(breakP, finalSectPr);
+    } else {
+      masterBody.appendChild(breakP);
+    }
 
-    const sectionBreak = `<w:p><w:pPr>${nextPageSectPr}</w:pPr></w:p>`;
-    masterBodyContent += sectionBreak + subContent;
+    const childNodes = subBody.childNodes;
+    for (let c = 0; c < childNodes.length; c++) {
+      const node = childNodes.item(c);
+      if (!node || node.nodeName === 'w:sectPr') continue;
+      const importedNode = masterDoc.importNode(node, true);
+      if (finalSectPr) {
+        masterBody.insertBefore(importedNode, finalSectPr);
+      } else {
+        masterBody.appendChild(importedNode);
+      }
+    }
   }
 
-  const finalDocumentXml = masterBodyContent + masterBodySuffix;
-  zip.file('word/document.xml', finalDocumentXml);
+  const finalXml = xmlSerializer.serializeToString(masterDoc as any);
+  zip.file('word/document.xml', finalXml);
   return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
