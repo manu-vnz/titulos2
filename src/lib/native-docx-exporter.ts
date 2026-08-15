@@ -1,6 +1,12 @@
 import PizZip from 'pizzip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
-import { FieldPosition } from '@/components/DiplomaCanvas';
+
+// Inline type to avoid importing from 'use client' component (DiplomaCanvas)
+export interface FieldPosition {
+  top: number;
+  left: number;
+  width?: number;
+}
 
 function stripAccents(str: string): string {
   return str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : '';

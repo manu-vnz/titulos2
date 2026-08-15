@@ -7,265 +7,118 @@ function stripAccents(str) {
   return str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : '';
 }
 
-const FIELD_TO_TEMPLATE_TEXT = {
-  plantel:                 'COMPLEJO EDUCATIVO',
-  nombre_estudiante:       'JESUS MANUEL VARGAS NOGUERA',
-  cedula_estudiante:       'V 33.479.449',
-  lugar_fecha_expedicion:  'CARABOBO, VALENCIA, 17 DE JULIO',
-  fecha_nacimiento:        '09 DE JULIO DE 2009',
-  ano_egreso:              '2026',
-  titulo_otorgado:         'BACHILLER',
-  codigo_plantel:          'S0163D0814',
-  plan_estudio:            'MEDIA GENERAL',
-  lugar_nacimiento:        'VENEZUELA, CARABOBO, MUNICIPIO',
-  director_cedula:         'V 18.361.899',
-  coordinador_cedula:      'V 13.601.460',
-  funcionario_cedula:      'V 9.445.225',
-  director_nombre:         'JOHN DANIEL ZAPATA',
-  coordinador_nombre:      'ALBERTO',
-  funcionario_nombre:      'WILMER',
+const templatePath = path.join(__dirname, 'plantillas', 'JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx');
+const docxBuffer = fs.readFileSync(templatePath);
+const zip = new PizZip(docxBuffer);
+const rawXml = zip.file('word/document.xml').asText();
+const domParser = new DOMParser();
+const xmlDoc = domParser.parseFromString(rawXml, 'text/xml');
+
+// Simulate exact payload from frontend for student 2
+const studentData = {
+  estudiante_nombre: 'REINALDO DAVID GARCÍA CAMPOS',
+  estudiante_cedula: 'V 32.666.328',
+  plantel: 'COMPLEJO EDUCATIVO RUÍZ PINEDA I',
+  codigo_plantel: 'S0163D0814',
+  titulo_otorgado: 'BACHILLER',
+  plan_estudio: 'EDUCACIÓN MEDIA GENERAL, 31059',
+  lugar_nacimiento: 'VENEZUELA, CARABOBO, MUNICIPIO VALENCIA',
+  fecha_nacimiento: '21 DE ENERO DE 2009',
+  lugar_fecha_expedicion: 'CARABOBO, VALENCIA, 17 DE JULIO DE 2026',
+  'año_egreso': '2026',
+  firmante_director_nombre: 'JOHN DANIEL ZAPATA MIRELES',
+  firmante_director_cedula: 'V 18.361.899',
+  firmante_coordinador_nombre: 'JOSÉ ALBERTO RUÍZ ÁLVAREZ',
+  firmante_coordinador_cedula: 'V 13.601.460',
+  firmante_funcionario_nombre: 'WILMER JOSÉ LUGO RODRÍGUEZ',
+  firmante_funcionario_cedula: 'V 9.445.225',
 };
 
-const DEFAULT_PREVIEW_POSITIONS = {
-  plantel:                 { top: 29.0,  left: 32.5 },
-  codigo_plantel:          { top: 32.0,  left: 20.0 },
-  titulo_otorgado:         { top: 35.0,  left: 20.0 },
-  plan_estudio:            { top: 37.8,  left: 36.5 },
-  nombre_estudiante:       { top: 40.6,  left: 25.5 },
-  cedula_estudiante:       { top: 43.5,  left: 31.5 },
-  lugar_nacimiento:        { top: 46.2,  left: 22.5 },
-  fecha_nacimiento:        { top: 49.0,  left: 19.5 },
-  lugar_fecha_expedicion:  { top: 57.0,  left: 37.0 },
-  ano_egreso:              { top: 59.8,  left: 23.0 },
-  coordinador_nombre:      { top: 70.8,  left: 22.0 },
-  coordinador_cedula:      { top: 73.0,  left: 22.0 },
-  funcionario_nombre:      { top: 70.8,  left: 50.0 },
-  funcionario_cedula:      { top: 73.0,  left: 50.0 },
-  director_nombre:         { top: 70.8,  left: 78.0 },
-  director_cedula:         { top: 73.0,  left: 78.0 },
-};
+// Build replacements exactly like native-docx-exporter.ts does
+const nombre_nuevo = studentData.estudiante_nombre || '';
+const cedula_nueva = studentData.estudiante_cedula || '';
+const plantel_nuevo = studentData.plantel || '';
+const codigo_nuevo = studentData.codigo_plantel || '';
+const titulo_nuevo = studentData.titulo_otorgado || '';
+const plan_nuevo = studentData.plan_estudio || '';
+const lugar_nac_nuevo = studentData.lugar_nacimiento || '';
+const fecha_nac_nueva = studentData.fecha_nacimiento || '';
+const expedicion_nueva = studentData.lugar_fecha_expedicion || '';
+const ano_egreso_nuevo = String(studentData['año_egreso'] || '2026');
+const director_nom = studentData.firmante_director_nombre || 'JOHN DANIEL ZAPATA MIRELES';
+const director_ci = studentData.firmante_director_cedula || 'V 18.361.899';
+const coord_nom = studentData.firmante_coordinador_nombre || 'JOSÉ ALBERTO RUÍZ ÁLVAREZ';
+const coord_ci = studentData.firmante_coordinador_cedula || 'V 13.601.460';
+const func_nom = studentData.firmante_funcionario_nombre || 'WILMER JOSÉ LUGO RODRÍGUEZ';
+const func_ci = studentData.firmante_funcionario_cedula || 'V 9.445.225';
 
-const SCALE_X = 792.0 / 100.0;
-const SCALE_Y = 612.0 / 100.0;
-
-function processSingleStudentDom(rawXml, studentData, fieldPositions = {}) {
-  const domParser = new DOMParser();
-  const xmlDoc = domParser.parseFromString(rawXml, 'text/xml');
-
-  // 1. Process VML shape positions
-  if (fieldPositions && Object.keys(fieldPositions).length > 0) {
-    const shapes = xmlDoc.getElementsByTagName('v:shape');
-    for (let i = 0; i < shapes.length; i++) {
-      const shape = shapes[i];
-      const style = shape.getAttribute('style') || '';
-      if (!style) continue;
-
-      const shapeText = shape.textContent || '';
-      if (!shapeText.trim()) continue;
-
-      let matchedField = null;
-      for (const [fieldKey, searchStr] of Object.entries(FIELD_TO_TEMPLATE_TEXT)) {
-        if (stripAccents(shapeText.toUpperCase()).includes(stripAccents(searchStr.toUpperCase()))) {
-          matchedField = fieldKey;
-          break;
-        }
-      }
-
-      if (!matchedField || !fieldPositions[matchedField]) continue;
-
-      const newPos = fieldPositions[matchedField];
-      const defPos = DEFAULT_PREVIEW_POSITIONS[matchedField];
-      if (!defPos) continue;
-
-      const deltaTopPct = newPos.top - defPos.top;
-      const deltaLeftPct = newPos.left - defPos.left;
-      if (Math.abs(deltaTopPct) < 0.05 && Math.abs(deltaLeftPct) < 0.05) continue;
-
-      const deltaTopPt = deltaTopPct * SCALE_Y;
-      const deltaLeftPt = deltaLeftPct * SCALE_X;
-
-      const mlMatch = style.match(/margin-left:\s*(-?[\d.]+)pt/i);
-      const mtMatch = style.match(/margin-top:\s*(-?[\d.]+)pt/i);
-      if (mlMatch && mtMatch) {
-        const currentMl = parseFloat(mlMatch[1]);
-        const currentMt = parseFloat(mtMatch[1]);
-        const newMl = Math.max(0, currentMl + deltaLeftPt);
-        const newMt = Math.max(0, currentMt + deltaTopPt);
-
-        let newStyle = style.replace(/margin-left:\s*-?[\d.]+pt/i, `margin-left:${newMl.toFixed(2)}pt`);
-        newStyle = newStyle.replace(/margin-top:\s*-?[\d.]+pt/i, `margin-top:${newMt.toFixed(2)}pt`);
-        shape.setAttribute('style', newStyle);
-      }
-    }
-  }
-
-  // 2. Perform text replacements
-  const nombre_nuevo = studentData.estudiante_nombre || studentData.nombre_estudiante || studentData.nombre || '';
-  const cedula_nueva = studentData.estudiante_cedula || studentData.cedula_estudiante || studentData.cedula || '';
-  const plantel_nuevo = studentData.plantel || studentData.zona_educativa_plantel || '';
-  const codigo_nuevo = studentData.codigo_plantel || '';
-  const titulo_nuevo = studentData.titulo_otorgado || '';
-  const plan_nuevo = studentData.plan_estudio || '';
-  const lugar_nac_nuevo = studentData.lugar_nacimiento || '';
-  const fecha_nac_nueva = studentData.fecha_nacimiento || '';
-  const expedicion_nueva = studentData.lugar_fecha_expedicion || '';
-  const ano_egreso_nuevo = String(studentData.año_egreso || studentData.ano_egreso || '2026');
-
-  const director_nom = studentData.firmante_director_nombre || studentData.director_nombre || 'JOHN DANIEL ZAPATA MIRELES';
-  const director_ci = studentData.firmante_director_cedula || studentData.director_cedula || 'V 18.361.899';
-  const coord_nom = studentData.firmante_coordinador_nombre || studentData.coordinador_nombre || 'JOSÉ ALBERTO RUÍZ ÁLVAREZ';
-  const coord_ci = studentData.firmante_coordinador_cedula || studentData.coordinador_cedula || 'V 13.601.460';
-  const func_nom = studentData.firmante_funcionario_nombre || studentData.funcionario_nombre || 'WILMER JOSÉ LUGO RODRÍGUEZ';
-  const func_ci = studentData.firmante_funcionario_cedula || studentData.funcionario_cedula || 'V 9.445.225';
-
-  const replacements = [];
-  if (expedicion_nueva) replacements.push(['CARABOBO, VALENCIA, 17 DE JULIO DE 2026', expedicion_nueva]);
-  if (lugar_nac_nuevo) replacements.push(['VENEZUELA, CARABOBO, MUNICIPIO NAGUANAGUA', lugar_nac_nuevo]);
-  if (plan_nuevo) {
-    replacements.push(['EDUCACIÓN MEDIA GENERAL, 31059', plan_nuevo]);
-    replacements.push(['EDUCACION MEDIA GENERAL, 31059', plan_nuevo]);
-  }
-  if (nombre_nuevo) replacements.push(['JESUS MANUEL VARGAS NOGUERA', nombre_nuevo]);
-  if (plantel_nuevo) {
-    replacements.push(['COMPLEJO EDUCATIVO RUÍZ PINEDA I', plantel_nuevo]);
-    replacements.push(['COMPLEJO EDUCATIVO RUIZ PINEDA I', plantel_nuevo]);
-  }
-  if (coord_nom) {
-    replacements.push(['JOSÉ ALBERTO RUÍZ ÁLVAREZ', coord_nom]);
-    replacements.push(['JOSE ALBERTO RUIZ ALVAREZ', coord_nom]);
-  }
-  if (func_nom) {
-    replacements.push(['WILMER JOSÉ LUGO RODRÍGUEZ', func_nom]);
-    replacements.push(['WILMER JOSE LUGO RODRIGUEZ', func_nom]);
-  }
-  if (director_nom) replacements.push(['JOHN DANIEL ZAPATA MIRELES', director_nom]);
-  if (fecha_nac_nueva) replacements.push(['09 DE JULIO DE 2009', fecha_nac_nueva]);
-  if (cedula_nueva) replacements.push(['V 33.479.449', cedula_nueva]);
-  if (director_ci) replacements.push(['V 18.361.899', director_ci]);
-  if (coord_ci) replacements.push(['V 13.601.460', coord_ci]);
-  if (func_ci) replacements.push(['V 9.445.225', func_ci]);
-  if (codigo_nuevo) replacements.push(['S0163D0814', codigo_nuevo]);
-  if (titulo_nuevo) replacements.push(['BACHILLER', titulo_nuevo]);
-  if (ano_egreso_nuevo) replacements.push(['2026', ano_egreso_nuevo]);
-
-  const paragraphs = xmlDoc.getElementsByTagName('w:p');
-  for (let i = 0; i < paragraphs.length; i++) {
-    const p = paragraphs[i];
-    const pText = p.textContent || '';
-    const pNorm = stripAccents(pText.toUpperCase());
-
-    for (const [targetStr, replacementStr] of replacements) {
-      if (!replacementStr) continue;
-      const targetNorm = stripAccents(targetStr.toUpperCase());
-
-      if (pNorm.includes(targetNorm)) {
-        const runs = p.getElementsByTagName('w:r');
-        if (runs.length > 0) {
-          let tElem = runs[0].getElementsByTagName('w:t')[0];
-          if (!tElem) {
-            tElem = xmlDoc.createElement('w:t');
-            runs[0].appendChild(tElem);
-          }
-          tElem.setAttribute('xml:space', 'preserve');
-          tElem.textContent = replacementStr;
-
-          let rPrElem = runs[0].getElementsByTagName('w:rPr')[0];
-          if (!rPrElem) {
-            rPrElem = xmlDoc.createElement('w:rPr');
-            runs[0].insertBefore(rPrElem, runs[0].firstChild);
-          }
-          let bElem = rPrElem.getElementsByTagName('w:b')[0];
-          if (!bElem) {
-            bElem = xmlDoc.createElement('w:b');
-            rPrElem.appendChild(bElem);
-          }
-
-          for (let rIdx = 1; rIdx < runs.length; rIdx++) {
-            const otElem = runs[rIdx].getElementsByTagName('w:t')[0];
-            if (otElem) {
-              otElem.textContent = '';
-            }
-          }
-        }
-        break;
-      }
-    }
-  }
-
-  return xmlDoc;
+const replacements = [];
+if (expedicion_nueva) replacements.push(['CARABOBO, VALENCIA, 17 DE JULIO DE 2026', expedicion_nueva]);
+if (lugar_nac_nuevo) replacements.push(['VENEZUELA, CARABOBO, MUNICIPIO NAGUANAGUA', lugar_nac_nuevo]);
+if (plan_nuevo) {
+  replacements.push(['EDUCACIÓN MEDIA GENERAL, 31059', plan_nuevo]);
+  replacements.push(['EDUCACION MEDIA GENERAL, 31059', plan_nuevo]);
 }
-
-function generateNativeConsolidatedDocx(templateBuffer, students, fieldPositions = {}) {
-  if (!students || students.length === 0) {
-    throw new Error('La lista de estudiantes está vacía.');
-  }
-
-  const zip = new PizZip(templateBuffer);
-  const rawXml = zip.file('word/document.xml').asText();
-
-  const xmlSerializer = new XMLSerializer();
-
-  if (students.length === 1) {
-    const xmlDoc = processSingleStudentDom(rawXml, students[0], fieldPositions);
-    const finalXml = xmlSerializer.serializeToString(xmlDoc);
-    zip.file('word/document.xml', finalXml);
-    return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
-  }
-
-  // Multi-student consolidation
-  const masterDoc = processSingleStudentDom(rawXml, students[0], fieldPositions);
-  const masterBody = masterDoc.getElementsByTagName('w:body')[0];
-
-  // Get master final section properties element (<w:sectPr>)
-  const masterSectPrs = masterBody.getElementsByTagName('w:sectPr');
-  const finalSectPr = masterSectPrs.length > 0 ? masterSectPrs[masterSectPrs.length - 1] : null;
-
-  for (let sIdx = 1; sIdx < students.length; sIdx++) {
-    const subDoc = processSingleStudentDom(rawXml, students[sIdx], fieldPositions);
-    const subBody = subDoc.getElementsByTagName('w:body')[0];
-
-    // Create section break paragraph (<w:p><w:pPr><w:sectPr><w:type w:val="nextPage"/></w:sectPr></w:p></w:p>)
-    const breakP = masterDoc.createElement('w:p');
-    const breakPPr = masterDoc.createElement('w:pPr');
-    const breakSectPr = masterDoc.createElement('w:sectPr');
-    const breakType = masterDoc.createElement('w:type');
-    breakType.setAttribute('w:val', 'nextPage');
-    breakSectPr.appendChild(breakType);
-    breakPPr.appendChild(breakSectPr);
-    breakP.appendChild(breakPPr);
-
-    if (finalSectPr) {
-      masterBody.insertBefore(breakP, finalSectPr);
-    } else {
-      masterBody.appendChild(breakP);
-    }
-
-    // Append child nodes of subBody (except final sectPr)
-    const childNodes = subBody.childNodes;
-    for (let c = 0; c < childNodes.length; c++) {
-      const node = childNodes.item(c);
-      if (node.nodeName === 'w:sectPr') continue;
-      const importedNode = masterDoc.importNode(node, true);
-      if (finalSectPr) {
-        masterBody.insertBefore(importedNode, finalSectPr);
-      } else {
-        masterBody.appendChild(importedNode);
-      }
-    }
-  }
-
-  const finalXml = xmlSerializer.serializeToString(masterDoc);
-  zip.file('word/document.xml', finalXml);
-  return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+if (nombre_nuevo) replacements.push(['JESUS MANUEL VARGAS NOGUERA', nombre_nuevo]);
+if (plantel_nuevo) {
+  replacements.push(['COMPLEJO EDUCATIVO RUÍZ PINEDA I', plantel_nuevo]);
+  replacements.push(['COMPLEJO EDUCATIVO RUIZ PINEDA I', plantel_nuevo]);
 }
+if (coord_nom) {
+  replacements.push(['JOSÉ ALBERTO RUÍZ ÁLVAREZ', coord_nom]);
+  replacements.push(['JOSE ALBERTO RUIZ ALVAREZ', coord_nom]);
+}
+if (func_nom) {
+  replacements.push(['WILMER JOSÉ LUGO RODRÍGUEZ', func_nom]);
+  replacements.push(['WILMER JOSE LUGO RODRIGUEZ', func_nom]);
+}
+if (director_nom) replacements.push(['JOHN DANIEL ZAPATA MIRELES', director_nom]);
+if (fecha_nac_nueva) replacements.push(['09 DE JULIO DE 2009', fecha_nac_nueva]);
+if (cedula_nueva) replacements.push(['V 33.479.449', cedula_nueva]);
+if (director_ci) replacements.push(['V 18.361.899', director_ci]);
+if (coord_ci) replacements.push(['V 13.601.460', coord_ci]);
+if (func_ci) replacements.push(['V 9.445.225', func_ci]);
+if (codigo_nuevo) replacements.push(['S0163D0814', codigo_nuevo]);
+if (titulo_nuevo) replacements.push(['BACHILLER', titulo_nuevo]);
+if (ano_egreso_nuevo) replacements.push(['2026', ano_egreso_nuevo]);
 
-// Test multi-student XMLDOM generation
-const templateBuffer = fs.readFileSync(path.join(__dirname, 'plantillas', 'JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx'));
-const testStudents = [
-  { estudiante_nombre: 'MANUELA ZULIMAR RAMOS PUERCHAMBUD', estudiante_cedula: 'V 33.479.449' },
-  { estudiante_nombre: 'JHAN ALEJANDRO BORJES AGUIAR', estudiante_cedula: 'V 32.666.328' }
-];
+// Test matching against ALL paragraphs
+const paragraphs = xmlDoc.getElementsByTagName('w:p');
+let matchCount = 0;
+for (let i = 0; i < paragraphs.length; i++) {
+  const p = paragraphs[i];
+  const pText = (p.textContent || '').trim();
+  if (!pText) continue;
+  const pNorm = stripAccents(pText.toUpperCase());
 
-const outBuf = generateNativeConsolidatedDocx(templateBuffer, testStudents);
-fs.writeFileSync(path.join(__dirname, 'test_xmldom_multi.docx'), outBuf);
-console.log("Generated test_xmldom_multi.docx (%d bytes)!", outBuf.length);
+  for (const [targetStr, replacementStr] of replacements) {
+    const targetNorm = stripAccents(targetStr.toUpperCase());
+    if (pNorm.includes(targetNorm)) {
+      const runs = p.getElementsByTagName('w:r');
+      console.log(`MATCH P[${i}]: "${targetStr}" -> "${replacementStr}" (${runs.length} runs)`);
+      matchCount++;
+      break;
+    }
+  }
+}
+console.log(`\nTotal paragraph matches: ${matchCount} / ${paragraphs.length} paragraphs`);
+
+// Also test matching against VML textbox content
+const textboxes = xmlDoc.getElementsByTagName('v:textbox');
+let tbMatchCount = 0;
+for (let i = 0; i < textboxes.length; i++) {
+  const tb = textboxes[i];
+  const tbText = (tb.textContent || '').trim();
+  if (!tbText) continue;
+  const tbNorm = stripAccents(tbText.toUpperCase());
+
+  for (const [targetStr, replacementStr] of replacements) {
+    const targetNorm = stripAccents(targetStr.toUpperCase());
+    if (tbNorm.includes(targetNorm)) {
+      console.log(`MATCH TB[${i}]: "${targetStr}" -> "${replacementStr}"`);
+      tbMatchCount++;
+      break;
+    }
+  }
+}
+console.log(`\nTotal textbox matches: ${tbMatchCount} / ${textboxes.length} textboxes`);

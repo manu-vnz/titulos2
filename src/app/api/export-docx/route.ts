@@ -5,23 +5,54 @@ import { generateNativeConsolidatedDocx } from '@/lib/native-docx-exporter';
 
 export async function POST(req: NextRequest) {
   try {
-    const { students, fieldPositions } = await req.json();
+    const body = await req.json();
+    const { students, fieldPositions } = body;
 
     if (!students || !Array.isArray(students) || students.length === 0) {
       return NextResponse.json({ error: 'No se enviaron datos de estudiantes para exportar.' }, { status: 400 });
     }
 
-    const plantillasDir = path.join(process.cwd(), 'plantillas');
-    let templatePath = path.join(plantillasDir, 'JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx');
+    // Try multiple possible locations for the plantillas directory
+    const possibleBases = [
+      process.cwd(),
+      path.join(process.cwd(), '.next', 'server'),
+      path.dirname(process.argv[1] || ''),
+    ];
 
-    if (!fs.existsSync(templatePath)) {
-      const files = fs.readdirSync(plantillasDir);
-      const docxFile = files.find(f => f.endsWith('.docx') && !f.includes('chueco') && !f.includes('output'));
-      if (docxFile) {
-        templatePath = path.join(plantillasDir, docxFile);
-      } else {
-        return NextResponse.json({ error: 'No se encontró la plantilla base .docx.' }, { status: 500 });
+    let templatePath = '';
+    const goldFileName = 'JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx';
+
+    for (const base of possibleBases) {
+      const candidate = path.join(base, 'plantillas', goldFileName);
+      if (fs.existsSync(candidate)) {
+        templatePath = candidate;
+        break;
       }
+    }
+
+    // Fallback: search in cwd plantillas for any docx
+    if (!templatePath) {
+      const plantillasDir = path.join(process.cwd(), 'plantillas');
+      if (fs.existsSync(plantillasDir)) {
+        const files = fs.readdirSync(plantillasDir);
+        const docxFile = files.find(f => f.endsWith('.docx') && !f.includes('chueco') && !f.includes('output') && !f.includes('consolidado'));
+        if (docxFile) {
+          templatePath = path.join(plantillasDir, docxFile);
+        }
+      }
+    }
+
+    if (!templatePath) {
+      return NextResponse.json({
+        error: 'No se encontró la plantilla base .docx en el servidor.',
+        debug: {
+          cwd: process.cwd(),
+          plantillasExists: fs.existsSync(path.join(process.cwd(), 'plantillas')),
+          plantillasContents: fs.existsSync(path.join(process.cwd(), 'plantillas'))
+            ? fs.readdirSync(path.join(process.cwd(), 'plantillas')).slice(0, 10)
+            : [],
+        }
+      }, { status: 500 });
     }
 
     const templateBuffer = fs.readFileSync(templatePath);
@@ -39,6 +70,7 @@ export async function POST(req: NextRequest) {
     console.error('Error en export-docx route:', err);
     return NextResponse.json({
       error: err.message || 'Error al exportar documento.',
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
     }, { status: 500 });
   }
 }

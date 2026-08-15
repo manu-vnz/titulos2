@@ -1,5 +1,5 @@
 import { StudentData, FieldCoordinate } from '@/types/diploma';
-import { FieldPosition } from '@/components/DiplomaCanvas';
+import { FieldPosition } from '@/lib/native-docx-exporter';
 
 export interface ExportOptions {
   includeBackground?: boolean;
