@@ -417,7 +417,7 @@ export const DiplomaCanvas: React.FC<DiplomaCanvasProps> = ({
       <div className="w-full overflow-auto flex justify-center py-2">
         <div
           ref={containerRef}
-          className={`relative w-full aspect-[297/210] max-w-[1000px] bg-white overflow-hidden border-2 select-none shadow-2xl transition-all duration-150 origin-top text-[13px] font-sans ${
+          className={`relative w-full aspect-[279.4/215.9] max-w-[1000px] bg-white overflow-hidden border-2 select-none shadow-2xl transition-all duration-150 origin-top text-[13px] font-sans ${
             isDragMode ? 'border-amber-500/50' : 'border-slate-700'
           }`}
           style={{
@@ -435,9 +435,10 @@ export const DiplomaCanvas: React.FC<DiplomaCanvasProps> = ({
       </div>
 
       <div className="mt-3 text-xs text-slate-400 flex items-center gap-4">
-        <span>📐 Canvas A4 Horizontal — Conectado al Panel de Calibración</span>
+        <span>📐 Canvas Carta Horizontal (11&quot; x 8.5&quot;) — Conectado al Panel de Calibración</span>
         <span>✍️ Selección bidireccional activada</span>
       </div>
     </div>
   );
 };
+

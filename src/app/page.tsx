@@ -144,13 +144,67 @@ export default function HomePage() {
   };
 
   const handleUpdateCoordinate = (id: string, updated: Partial<FieldCoordinate>) => {
-    setCoordinates(prev => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        ...updated,
-      },
-    }));
+    setCoordinates(prevCoords => {
+      const nextCoords = {
+        ...prevCoords,
+        [id]: {
+          ...prevCoords[id],
+          ...updated,
+        },
+      };
+
+      const coord = nextCoords[id];
+      if (coord && coord.fieldKey) {
+        const fieldKey = coord.fieldKey;
+        const posKey = fieldKey === 'año_egreso' ? 'ano_egreso' :
+                       fieldKey === 'estudiante_nombre' ? 'nombre_estudiante' :
+                       fieldKey === 'estudiante_cedula' ? 'cedula_estudiante' :
+                       fieldKey.startsWith('firmante_') ? fieldKey.replace(/^firmante_/, '') : fieldKey;
+
+        const top = parseFloat(((coord.y_mm / 215.9) * 100).toFixed(1));
+        const left = parseFloat(((coord.x_mm / 279.4) * 100).toFixed(1));
+        const width = parseFloat(((coord.width_mm / 279.4) * 100).toFixed(1));
+
+        setFieldPositions(prevPos => ({
+          ...prevPos,
+          [posKey]: {
+            ...prevPos[posKey],
+            top,
+            left,
+            width,
+          },
+        }));
+      }
+
+      return nextCoords;
+    });
+  };
+
+  const handleUpdateFieldPositions = (newPositions: Record<string, FieldPosition>) => {
+    setFieldPositions(newPositions);
+    setCoordinates(prevCoords => {
+      const nextCoords = { ...prevCoords };
+      Object.entries(newPositions).forEach(([posKey, pos]) => {
+        const targetId = Object.keys(nextCoords).find(id => {
+          const fk = nextCoords[id].fieldKey;
+          const mappedKey = fk === 'año_egreso' ? 'ano_egreso' :
+                            fk === 'estudiante_nombre' ? 'nombre_estudiante' :
+                            fk === 'estudiante_cedula' ? 'cedula_estudiante' :
+                            fk.startsWith('firmante_') ? fk.replace(/^firmante_/, '') : fk;
+          return mappedKey === posKey;
+        });
+
+        if (targetId && nextCoords[targetId]) {
+          nextCoords[targetId] = {
+            ...nextCoords[targetId],
+            x_mm: parseFloat(((pos.left / 100) * 279.4).toFixed(1)),
+            y_mm: parseFloat(((pos.top / 100) * 215.9).toFixed(1)),
+            width_mm: pos.width ? parseFloat(((pos.width / 100) * 279.4).toFixed(1)) : nextCoords[targetId].width_mm,
+          };
+        }
+      });
+      return nextCoords;
+    });
   };
 
   const handleResetCoordinates = () => {
@@ -166,6 +220,7 @@ export default function HomePage() {
       setFieldPositions(preset.fieldPositions as Record<string, FieldPosition>);
     }
   };
+
 
   /**
    * Export DOCX for a single student
@@ -368,7 +423,7 @@ export default function HomePage() {
                 onUpdateCoordinate={handleUpdateCoordinate}
                 showGrid={showGrid}
                 fieldPositions={fieldPositions}
-                onUpdateFieldPositions={setFieldPositions}
+                onUpdateFieldPositions={handleUpdateFieldPositions}
                 onExportStudent={withBg => handleExportSingle(selectedStudentIndex, withBg)}
               />
             </div>

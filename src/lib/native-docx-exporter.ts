@@ -118,6 +118,22 @@ function processParagraphNode(
   }
 }
 
+function getMatchingFieldPosition(matchedField: string, fieldPositions: Record<string, FieldPosition>): FieldPosition | undefined {
+  if (!fieldPositions) return undefined;
+  const aliases = [
+    matchedField,
+    matchedField === 'nombre_estudiante' ? 'estudiante_nombre' : matchedField,
+    matchedField === 'cedula_estudiante' ? 'estudiante_cedula' : matchedField,
+    matchedField === 'ano_egreso' ? 'año_egreso' : matchedField,
+    `firmante_${matchedField}`,
+    matchedField.replace(/^firmante_/, ''),
+  ];
+  for (const alias of aliases) {
+    if (fieldPositions[alias]) return fieldPositions[alias];
+  }
+  return undefined;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function processSingleStudentDom(
   rawXml: string,
@@ -146,9 +162,10 @@ export function processSingleStudentDom(
         }
       }
 
-      if (!matchedField || !fieldPositions[matchedField]) continue;
+      if (!matchedField) continue;
+      const newPos = getMatchingFieldPosition(matchedField, fieldPositions);
+      if (!newPos) continue;
 
-      const newPos = fieldPositions[matchedField];
       const defPos = DEFAULT_PREVIEW_POSITIONS[matchedField];
       if (!defPos) continue;
 

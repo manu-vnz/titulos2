@@ -15,7 +15,25 @@ export async function POST(req: NextRequest) {
   let outputPath = '';
 
   try {
-    let { students, fieldPositions } = await req.json();
+    let { students, fieldPositions, coordinates } = await req.json();
+
+    if (coordinates && (!fieldPositions || Object.keys(fieldPositions).length === 0)) {
+      fieldPositions = {};
+      for (const [, c] of Object.entries(coordinates as Record<string, any>)) {
+        const fk = c?.fieldKey || '';
+        if (fk) {
+          const key = fk === 'año_egreso' ? 'ano_egreso' :
+                      fk === 'estudiante_nombre' ? 'nombre_estudiante' :
+                      fk === 'estudiante_cedula' ? 'cedula_estudiante' :
+                      fk.startsWith('firmante_') ? fk.replace(/^firmante_/, '') : fk;
+          fieldPositions[key] = {
+            top: parseFloat((( (c.y_mm || 0) / 215.9) * 100).toFixed(1)),
+            left: parseFloat((( (c.x_mm || 0) / 279.4) * 100).toFixed(1)),
+            width: parseFloat((( (c.width_mm || 0) / 279.4) * 100).toFixed(1)),
+          };
+        }
+      }
+    }
 
     if (students && !Array.isArray(students)) {
       students = [students];

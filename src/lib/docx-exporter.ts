@@ -24,7 +24,7 @@ export async function exportConsolidatedDocx(
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ students: studentsList, fieldPositions }),
+    body: JSON.stringify({ students: studentsList, fieldPositions, coordinates }),
   }).catch(() => null);
 
   // 2. Fallback to Next.js API route (/api/export-docx) if Python endpoint is not available
@@ -34,7 +34,7 @@ export async function exportConsolidatedDocx(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ students: studentsList, fieldPositions }),
+      body: JSON.stringify({ students: studentsList, fieldPositions, coordinates }),
     });
   }
 

@@ -121,22 +121,29 @@ def reemplazar_texto_en_parrafo(paragraph, buscar, reemplazar):
             for i in range(1, len(paragraph.runs)):
                 paragraph.runs[i].text = ""
 
+def resolve_field_pos(matched_field, field_positions):
+    if not field_positions:
+        return None
+    aliases = [
+        matched_field,
+        'estudiante_nombre' if matched_field == 'nombre_estudiante' else matched_field,
+        'estudiante_cedula' if matched_field == 'cedula_estudiante' else matched_field,
+        'año_egreso' if matched_field == 'ano_egreso' else matched_field,
+        'firmante_' + matched_field,
+        matched_field.replace('firmante_', '') if matched_field.startswith('firmante_') else matched_field,
+    ]
+    for a in aliases:
+        if a in field_positions:
+            return field_positions[a]
+    return None
 
 def aplicar_posiciones_vml(doc, field_positions):
     """
     Applies position deltas from the frontend canvas to VML shapes in the DOCX.
-    
-    For each field that the user has moved from its default position,
-    computes the delta in percentage, converts to points, and updates
-    the VML shape's margin-left and margin-top in its style attribute.
-    
-    This runs BEFORE text replacement so shapes can be found by their 
-    original template text content.
     """
     if not field_positions:
         return
 
-    # Find all v:shape elements
     shapes = doc.element.xpath('//*[local-name()="shape"]')
     
     for shape in shapes:
@@ -144,7 +151,6 @@ def aplicar_posiciones_vml(doc, field_positions):
         if not style:
             continue
         
-        # Get text content of this shape
         txbx_ps = shape.xpath('.//*[local-name()="txbxContent"]//*[local-name()="p"]')
         shape_text = ''
         for tp in txbx_ps:
@@ -156,7 +162,6 @@ def aplicar_posiciones_vml(doc, field_positions):
         if not shape_text:
             continue
         
-        # Match this shape to a field key
         matched_field = None
         for field_key, search_text in FIELD_TO_TEMPLATE_TEXT.items():
             if search_text.upper() in shape_text.upper():
@@ -166,34 +171,28 @@ def aplicar_posiciones_vml(doc, field_positions):
         if not matched_field:
             continue
         
-        # Check if this field has a custom position
-        if matched_field not in field_positions:
+        new_pos = resolve_field_pos(matched_field, field_positions)
+        if not new_pos:
             continue
         
-        new_pos = field_positions[matched_field]
         default_pos = DEFAULT_PREVIEW_POSITIONS.get(matched_field)
-        
         if not default_pos:
             continue
         
         new_top = float(new_pos.get('top', default_pos['top']))
         new_left = float(new_pos.get('left', default_pos['left']))
         
-        # Compute delta from defaults
         delta_top_pct = new_top - default_pos['top']
         delta_left_pct = new_left - default_pos['left']
         
-        # Skip if no change (< 0.05%)
         if abs(delta_top_pct) < 0.05 and abs(delta_left_pct) < 0.05:
             continue
         
-        # Convert delta to points
         delta_top_pt = delta_top_pct * SCALE_Y
         delta_left_pt = delta_left_pct * SCALE_X
         
-        # Parse current margin-left and margin-top from style
-        ml_match = re.search(r'margin-left:([\d.]+)pt', style)
-        mt_match = re.search(r'margin-top:([\d.]+)pt', style)
+        ml_match = re.search(r'margin-left:([\d.-]+)pt', style)
+        mt_match = re.search(r'margin-top:([\d.-]+)pt', style)
         
         if ml_match and mt_match:
             current_ml = float(ml_match.group(1))
@@ -202,14 +201,13 @@ def aplicar_posiciones_vml(doc, field_positions):
             new_ml = max(0, current_ml + delta_left_pt)
             new_mt = max(0, current_mt + delta_top_pt)
             
-            # Replace in style string
             new_style = re.sub(
-                r'margin-left:[\d.]+pt',
+                r'margin-left:[\d.-]+pt',
                 'margin-left:%.2fpt' % new_ml,
                 style
             )
             new_style = re.sub(
-                r'margin-top:[\d.]+pt',
+                r'margin-top:[\d.-]+pt',
                 'margin-top:%.2fpt' % new_mt,
                 new_style
             )

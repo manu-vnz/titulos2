@@ -24,6 +24,22 @@ class handler(BaseHTTPRequestHandler):
 
             students = data.get('students', [])
             field_positions = data.get('fieldPositions', {})
+            coordinates = data.get('coordinates', {})
+
+            if coordinates and not field_positions:
+                field_positions = {}
+                for cid, c in coordinates.items():
+                    fk = c.get('fieldKey', '')
+                    if fk:
+                        key = 'ano_egreso' if fk in ['año_egreso', 'ano_egreso'] else \
+                              'nombre_estudiante' if fk in ['estudiante_nombre', 'nombre_estudiante'] else \
+                              'cedula_estudiante' if fk in ['estudiante_cedula', 'cedula_estudiante'] else \
+                              fk.replace('firmante_', '') if fk.startswith('firmante_') else fk
+                        field_positions[key] = {
+                            'top': round((c.get('y_mm', 0) / 215.9) * 100, 1),
+                            'left': round((c.get('x_mm', 0) / 279.4) * 100, 1),
+                            'width': round((c.get('width_mm', 0) / 279.4) * 100, 1),
+                        }
 
             if isinstance(students, dict):
                 students = [students]
