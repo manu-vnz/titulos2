@@ -31,22 +31,22 @@ const FIELD_TO_TEMPLATE_TEXT: Record<string, string> = {
 };
 
 const DEFAULT_PREVIEW_POSITIONS: Record<string, { top: number; left: number }> = {
-  plantel:                 { top: 29.0,  left: 32.5 },
-  codigo_plantel:          { top: 32.0,  left: 20.0 },
-  titulo_otorgado:         { top: 35.0,  left: 20.0 },
-  plan_estudio:            { top: 37.8,  left: 36.5 },
-  nombre_estudiante:       { top: 40.6,  left: 25.5 },
-  cedula_estudiante:       { top: 43.5,  left: 31.5 },
-  lugar_nacimiento:        { top: 46.2,  left: 22.5 },
-  fecha_nacimiento:        { top: 49.0,  left: 19.5 },
-  lugar_fecha_expedicion:  { top: 57.0,  left: 37.0 },
-  ano_egreso:              { top: 59.8,  left: 23.0 },
-  coordinador_nombre:      { top: 70.8,  left: 22.0 },
-  coordinador_cedula:      { top: 73.0,  left: 22.0 },
-  funcionario_nombre:      { top: 70.8,  left: 50.0 },
-  funcionario_cedula:      { top: 73.0,  left: 50.0 },
-  director_nombre:         { top: 70.8,  left: 78.0 },
-  director_cedula:         { top: 73.0,  left: 78.0 },
+  plantel:                 { top: 4.0,   left: 21.0 },
+  codigo_plantel:          { top: 1.5,   left: 8.2 },
+  titulo_otorgado:         { top: 3.9,   left: 9.2 },
+  plan_estudio:            { top: 2.3,   left: 24.6 },
+  nombre_estudiante:       { top: 8.8,   left: 15.9 },
+  cedula_estudiante:       { top: 11.2,  left: 22.6 },
+  lugar_nacimiento:        { top: 1.2,   left: 13.8 },
+  fecha_nacimiento:        { top: 16.0,  left: 9.1 },
+  lugar_fecha_expedicion:  { top: 20.7,  left: 24.2 },
+  ano_egreso:              { top: 22.9,  left: 13.8 },
+  coordinador_nombre:      { top: 18.5,  left: 6.8 },
+  coordinador_cedula:      { top: 22.9,  left: 31.3 },
+  funcionario_nombre:      { top: 20.6,  left: 32.4 },
+  funcionario_cedula:      { top: 20.7,  left: 4.9 },
+  director_nombre:         { top: 20.6,  left: 66.7 },
+  director_cedula:         { top: 22.9,  left: 62.4 },
 };
 
 const SCALE_X = 792.0 / 100.0;
