@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     const libDir = path.join(process.cwd(), 'src', 'lib');
     const plantillasDir = path.join(process.cwd(), 'plantillas');
 
-    const goldFileName = 'JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx';
+    const goldFileName = 'titulo_BREINER_BALDALLO_LUNA_V34857655_solo_texto cuadre.docx';
     let templatePath = path.join(plantillasDir, goldFileName);
     if (!fs.existsSync(templatePath)) {
       const files = fs.existsSync(plantillasDir) ? fs.readdirSync(plantillasDir) : [];

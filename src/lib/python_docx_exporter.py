@@ -31,10 +31,10 @@ DEFAULT_PREVIEW_POSITIONS = {
 # Used to identify which VML shape corresponds to which field.
 FIELD_TO_TEMPLATE_TEXT = {
     'plantel':                 'COMPLEJO EDUCATIVO',
-    'nombre_estudiante':       'JESUS MANUEL VARGAS NOGUERA',
-    'cedula_estudiante':       'V 33.479.449',
+    'nombre_estudiante':       'BREINER BALDALLO LUNA',
+    'cedula_estudiante':       'V 34.857.655',
     'lugar_fecha_expedicion':  'CARABOBO, VALENCIA, 17 DE JULIO',
-    'fecha_nacimiento':        '09 DE JULIO DE 2009',
+    'fecha_nacimiento':        '08 DE OCTUBRE DE 2009',
     'ano_egreso':              '2026',
     'titulo_otorgado':         'BACHILLER',
     'codigo_plantel':          'S0163D0814',
@@ -59,12 +59,16 @@ SCALE_Y = PAGE_HEIGHT_PT / 100.0  # 6.12 pt per %
 
 def find_gold_template(plantillas_dir):
     """
-    Busca la plantilla dorada oficial 'JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx'.
+    Busca la plantilla dorada oficial 'titulo_BREINER_BALDALLO_LUNA_V34857655_solo_texto cuadre.docx'.
     Ignora cualquier archivo que contenga 'chueco' o que sea una exportación previa.
     """
-    gold_official = os.path.join(plantillas_dir, "JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx")
+    gold_official = os.path.join(plantillas_dir, "titulo_BREINER_BALDALLO_LUNA_V34857655_solo_texto cuadre.docx")
     if os.path.exists(gold_official):
         return gold_official
+
+    fallback_gold = os.path.join(plantillas_dir, "JESUS MANUEL VARGAS NOGUERA COMPLEJO EDUCATIVO RUIZPINEDA I 2026.docx")
+    if os.path.exists(fallback_gold):
+        return fallback_gold
 
     docx_files = glob.glob(os.path.join(plantillas_dir, '*.docx'))
     valid_files = [
@@ -79,6 +83,7 @@ def find_gold_template(plantillas_dir):
         return docx_files[0]
 
     raise FileNotFoundError(f"No se encontró ninguna plantilla base .docx en: {plantillas_dir}")
+
 
 
 import unicodedata
@@ -215,11 +220,100 @@ def aplicar_posiciones_vml(doc, field_positions):
             shape.set('style', new_style)
 
 
+def asegurar_elementos_flotantes_delante(doc):
+    """
+    Configura todo el XML del documento (w:drawing / wp:anchor) para que todos los cuadros
+    de texto/imágenes u objetos de dibujo no estén en 'línea de texto' (wp:inline), sino
+    convertidos a objetos flotantes tipo wp:anchor posicionados 'Delante del texto' (behindDoc="0")
+    con un índice Z elevado (relativeHeight) y propiedad de ajuste <wp:wrapNone/> para evitar
+    que el objeto empuje ni mueva el resto del contenido del documento.
+    """
+    ns_wp = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+
+    drawings = doc.element.xpath('//*[local-name()="drawing"]')
+    
+    for draw in drawings:
+        # 1. Convert any wp:inline element to wp:anchor
+        inlines = draw.xpath('.//*[local-name()="inline"]')
+        for inline in inlines:
+            inline.tag = '{%s}anchor' % ns_wp
+            inline.set('behindDoc', '0')
+            inline.set('relativeHeight', '251659264')
+            inline.set('simplePos', '0')
+            inline.set('locked', '0')
+            inline.set('layoutInCell', '1')
+            inline.set('allowOverlap', '1')
+            if 'distT' not in inline.attrib: inline.set('distT', '0')
+            if 'distB' not in inline.attrib: inline.set('distB', '0')
+            if 'distL' not in inline.attrib: inline.set('distL', '0')
+            if 'distR' not in inline.attrib: inline.set('distR', '0')
+
+            simple_pos = inline.find('{%s}simplePos' % ns_wp)
+            if simple_pos is None:
+                sp = etree.Element('{%s}simplePos' % ns_wp)
+                sp.set('x', '0')
+                sp.set('y', '0')
+                inline.insert(0, sp)
+
+            pos_h = inline.find('{%s}positionH' % ns_wp)
+            if pos_h is None:
+                ph = etree.Element('{%s}positionH' % ns_wp)
+                ph.set('relativeFrom', 'margin')
+                offset = etree.SubElement(ph, '{%s}posOffset' % ns_wp)
+                offset.text = '0'
+                inline.insert(1, ph)
+
+            pos_v = inline.find('{%s}positionV' % ns_wp)
+            if pos_v is None:
+                pv = etree.Element('{%s}positionV' % ns_wp)
+                pv.set('relativeFrom', 'paragraph')
+                offset = etree.SubElement(pv, '{%s}posOffset' % ns_wp)
+                offset.text = '0'
+                inline.insert(2, pv)
+
+            for wrap_tag in ['wrapSquare', 'wrapTight', 'wrapThrough', 'wrapTopAndBottom']:
+                old_wrap = inline.find('{%s}%s' % (ns_wp, wrap_tag))
+                if old_wrap is not None:
+                    inline.remove(old_wrap)
+
+            wrap_none = inline.find('{%s}wrapNone' % ns_wp)
+            if wrap_none is None:
+                wn = etree.Element('{%s}wrapNone' % ns_wp)
+                doc_pr = inline.find('{%s}docPr' % ns_wp)
+                if doc_pr is not None:
+                    doc_pr.addprevious(wn)
+                else:
+                    inline.append(wn)
+
+        # 2. Configure existing wp:anchor elements to enforce behindDoc="0", relativeHeight, and wrapNone
+        anchors = draw.xpath('.//*[local-name()="anchor"]')
+        for anchor in anchors:
+            anchor.set('behindDoc', '0')
+            if not anchor.get('relativeHeight') or anchor.get('relativeHeight') == '0':
+                anchor.set('relativeHeight', '251659264')
+            anchor.set('allowOverlap', '1')
+
+            for wrap_tag in ['wrapSquare', 'wrapTight', 'wrapThrough', 'wrapTopAndBottom']:
+                old_wrap = anchor.find('{%s}%s' % (ns_wp, wrap_tag))
+                if old_wrap is not None:
+                    anchor.remove(old_wrap)
+
+            wrap_none = anchor.find('{%s}wrapNone' % ns_wp)
+            if wrap_none is None:
+                wn = etree.Element('{%s}wrapNone' % ns_wp)
+                doc_pr = anchor.find('{%s}docPr' % ns_wp)
+                if doc_pr is not None:
+                    doc_pr.addprevious(wn)
+                else:
+                    anchor.append(wn)
+
+
 def exportar_diploma_docx(template_path, output_path, datos, field_positions=None):
     """
     Motor de exportación .docx con unificación de runs y reemplazo limpio in-place.
     Aplica negrita (bold = True) a todo el texto del documento.
     Opcionalmente aplica posiciones personalizadas de campos VML.
+    Garantiza elementos flotantes delante de texto (behindDoc="0") con wrapNone.
     """
     doc = docx.Document(template_path)
 
@@ -252,17 +346,20 @@ def exportar_diploma_docx(template_path, output_path, datos, field_positions=Non
     if expedicion_nueva:
         reemplazos.append(("CARABOBO, VALENCIA, 17 DE JULIO DE 2026", expedicion_nueva))
     if lugar_nac_nuevo:
+        reemplazos.append(("VENEZUELA, CARABOBO, MUNICIPIO VALENCIA", lugar_nac_nuevo))
         reemplazos.append(("VENEZUELA, CARABOBO, MUNICIPIO NAGUANAGUA", lugar_nac_nuevo))
     if plan_nuevo:
         reemplazos.append(("EDUCACI\u00d3N MEDIA GENERAL, 31059", plan_nuevo))
         reemplazos.append(("EDUCACION MEDIA GENERAL, 31059", plan_nuevo))
     if nombre_nuevo:
+        reemplazos.append(("BREINER BALDALLO LUNA", nombre_nuevo))
         reemplazos.append(("JESUS MANUEL VARGAS NOGUERA", nombre_nuevo))
     if plantel_nuevo:
         reemplazos.append(("COMPLEJO EDUCATIVO RU\u00cdZ PINEDA I", plantel_nuevo))
         reemplazos.append(("COMPLEJO EDUCATIVO RUIZ PINEDA I", plantel_nuevo))
     if coord_nom:
         reemplazos.append(("JOS\u00c9 ALBERTO RU\u00cdZ \u00c1LVAREZ", coord_nom))
+        reemplazos.append(("JOS\u00c9 ALBERTO RU\u00cdZ \u00c0LVAREZ", coord_nom))
         reemplazos.append(("JOSE ALBERTO RUIZ ALVAREZ", coord_nom))
         reemplazos.append(("JOS\u00c9 ALBERTO RUIZ \u00c1LVAREZ", coord_nom))
     if func_nom:
@@ -272,8 +369,10 @@ def exportar_diploma_docx(template_path, output_path, datos, field_positions=Non
     if director_nom:
         reemplazos.append(("JOHN DANIEL ZAPATA MIRELES", director_nom))
     if fecha_nac_nueva:
+        reemplazos.append(("08 DE OCTUBRE DE 2009", fecha_nac_nueva))
         reemplazos.append(("09 DE JULIO DE 2009", fecha_nac_nueva))
     if cedula_nueva:
+        reemplazos.append(("V 34.857.655", cedula_nueva))
         reemplazos.append(("V 33.479.449", cedula_nueva))
     if director_ci:
         reemplazos.append(("V 18.361.899", director_ci))
@@ -316,6 +415,9 @@ def exportar_diploma_docx(template_path, output_path, datos, field_positions=Non
         for run in p.runs:
             if run.text and run.text.strip():
                 run.bold = True
+
+    # Convert inline drawings to anchor (in front of text) & enforce wrapNone + behindDoc=0
+    asegurar_elementos_flotantes_delante(doc)
 
     doc.save(output_path)
     return doc

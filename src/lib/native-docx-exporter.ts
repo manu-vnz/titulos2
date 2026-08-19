@@ -13,10 +13,10 @@ function stripAccents(str: string): string {
 
 const FIELD_TO_TEMPLATE_TEXT: Record<string, string> = {
   plantel:                 'COMPLEJO EDUCATIVO',
-  nombre_estudiante:       'JESUS MANUEL VARGAS NOGUERA',
-  cedula_estudiante:       'V 33.479.449',
+  nombre_estudiante:       'BREINER BALDALLO LUNA',
+  cedula_estudiante:       'V 34.857.655',
   lugar_fecha_expedicion:  'CARABOBO, VALENCIA, 17 DE JULIO',
-  fecha_nacimiento:        '09 DE JULIO DE 2009',
+  fecha_nacimiento:        '08 DE OCTUBRE DE 2009',
   ano_egreso:              '2026',
   titulo_otorgado:         'BACHILLER',
   codigo_plantel:          'S0163D0814',
@@ -212,12 +212,18 @@ export function processSingleStudentDom(
 
   const replacements: Array<[string, string]> = [];
   if (expedicion_nueva) replacements.push(['CARABOBO, VALENCIA, 17 DE JULIO DE 2026', expedicion_nueva]);
-  if (lugar_nac_nuevo) replacements.push(['VENEZUELA, CARABOBO, MUNICIPIO NAGUANAGUA', lugar_nac_nuevo]);
+  if (lugar_nac_nuevo) {
+    replacements.push(['VENEZUELA, CARABOBO, MUNICIPIO VALENCIA', lugar_nac_nuevo]);
+    replacements.push(['VENEZUELA, CARABOBO, MUNICIPIO NAGUANAGUA', lugar_nac_nuevo]);
+  }
   if (plan_nuevo) {
     replacements.push(['EDUCACIÓN MEDIA GENERAL, 31059', plan_nuevo]);
     replacements.push(['EDUCACION MEDIA GENERAL, 31059', plan_nuevo]);
   }
-  if (nombre_nuevo) replacements.push(['JESUS MANUEL VARGAS NOGUERA', nombre_nuevo]);
+  if (nombre_nuevo) {
+    replacements.push(['BREINER BALDALLO LUNA', nombre_nuevo]);
+    replacements.push(['JESUS MANUEL VARGAS NOGUERA', nombre_nuevo]);
+  }
   if (plantel_nuevo) {
     replacements.push(['COMPLEJO EDUCATIVO RUÍZ PINEDA I', plantel_nuevo]);
     replacements.push(['COMPLEJO EDUCATIVO RUIZ PINEDA I', plantel_nuevo]);
@@ -232,8 +238,14 @@ export function processSingleStudentDom(
     replacements.push(['WILMER JOSE LUGO RODRIGUEZ', func_nom]);
   }
   if (director_nom) replacements.push(['JOHN DANIEL ZAPATA MIRELES', director_nom]);
-  if (fecha_nac_nueva) replacements.push(['09 DE JULIO DE 2009', fecha_nac_nueva]);
-  if (cedula_nueva) replacements.push(['V 33.479.449', cedula_nueva]);
+  if (fecha_nac_nueva) {
+    replacements.push(['08 DE OCTUBRE DE 2009', fecha_nac_nueva]);
+    replacements.push(['09 DE JULIO DE 2009', fecha_nac_nueva]);
+  }
+  if (cedula_nueva) {
+    replacements.push(['V 34.857.655', cedula_nueva]);
+    replacements.push(['V 33.479.449', cedula_nueva]);
+  }
   if (director_ci) replacements.push(['V 18.361.899', director_ci]);
   if (coord_ci) replacements.push(['V 13.601.460', coord_ci]);
   if (func_ci) replacements.push(['V 9.445.225', func_ci]);
@@ -267,7 +279,103 @@ export function processSingleStudentDom(
     }
   }
 
+  // C. Convert any wp:inline drawings to floating wp:anchor (in front of text) with wrapNone
+  convertInlinesToAnchors(xmlDoc);
+
   return xmlDoc;
+}
+
+function convertInlinesToAnchors(xmlDoc: any) {
+  const WP_NS = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
+
+  // 1. Convert wp:inline elements to wp:anchor
+  const inlines = Array.from(xmlDoc.getElementsByTagName('wp:inline')) as any[];
+  for (const inline of inlines) {
+    const anchor = xmlDoc.createElementNS(WP_NS, 'wp:anchor');
+    anchor.setAttribute('behindDoc', '0');
+    anchor.setAttribute('relativeHeight', '251659264');
+    anchor.setAttribute('simplePos', '0');
+    anchor.setAttribute('locked', '0');
+    anchor.setAttribute('layoutInCell', '1');
+    anchor.setAttribute('allowOverlap', '1');
+    anchor.setAttribute('distT', inline.getAttribute('distT') || '0');
+    anchor.setAttribute('distB', inline.getAttribute('distB') || '0');
+    anchor.setAttribute('distL', inline.getAttribute('distL') || '0');
+    anchor.setAttribute('distR', inline.getAttribute('distR') || '0');
+
+    const simplePos = xmlDoc.createElementNS(WP_NS, 'wp:simplePos');
+    simplePos.setAttribute('x', '0');
+    simplePos.setAttribute('y', '0');
+    anchor.appendChild(simplePos);
+
+    const posH = xmlDoc.createElementNS(WP_NS, 'wp:positionH');
+    posH.setAttribute('relativeFrom', 'margin');
+    const posOffsetH = xmlDoc.createElementNS(WP_NS, 'wp:posOffset');
+    posOffsetH.textContent = '0';
+    posH.appendChild(posOffsetH);
+    anchor.appendChild(posH);
+
+    const posV = xmlDoc.createElementNS(WP_NS, 'wp:positionV');
+    posV.setAttribute('relativeFrom', 'paragraph');
+    const posOffsetV = xmlDoc.createElementNS(WP_NS, 'wp:posOffset');
+    posOffsetV.textContent = '0';
+    posV.appendChild(posOffsetV);
+    anchor.appendChild(posV);
+
+    while (inline.firstChild) {
+      const child = inline.firstChild;
+      const localName = child.localName || child.nodeName;
+      if (['wrapSquare', 'wrapTight', 'wrapThrough', 'wrapTopAndBottom', 'wp:wrapSquare', 'wp:wrapTight', 'wp:wrapThrough', 'wp:wrapTopAndBottom'].includes(localName)) {
+        inline.removeChild(child);
+      } else {
+        anchor.appendChild(child);
+      }
+    }
+
+    const wrapNones = anchor.getElementsByTagName('wp:wrapNone');
+    if (!wrapNones || wrapNones.length === 0) {
+      const wrapNone = xmlDoc.createElementNS(WP_NS, 'wp:wrapNone');
+      const docPrs = anchor.getElementsByTagName('wp:docPr');
+      if (docPrs && docPrs.length > 0) {
+        anchor.insertBefore(wrapNone, docPrs[0]);
+      } else {
+        anchor.appendChild(wrapNone);
+      }
+    }
+
+    if (inline.parentNode) {
+      inline.parentNode.replaceChild(anchor, inline);
+    }
+  }
+
+  // 2. Enforce behindDoc="0", relativeHeight, and wrapNone on existing wp:anchor elements
+  const anchors = Array.from(xmlDoc.getElementsByTagName('wp:anchor')) as any[];
+  for (const anchor of anchors) {
+    anchor.setAttribute('behindDoc', '0');
+    if (!anchor.getAttribute('relativeHeight') || anchor.getAttribute('relativeHeight') === '0') {
+      anchor.setAttribute('relativeHeight', '251659264');
+    }
+    anchor.setAttribute('allowOverlap', '1');
+
+    for (const wrapTag of ['wp:wrapSquare', 'wp:wrapTight', 'wp:wrapThrough', 'wp:wrapTopAndBottom', 'wrapSquare', 'wrapTight', 'wrapThrough', 'wrapTopAndBottom']) {
+      const oldWraps = anchor.getElementsByTagName(wrapTag);
+      for (let w = oldWraps.length - 1; w >= 0; w--) {
+        const ow = oldWraps[w];
+        if (ow && ow.parentNode) ow.parentNode.removeChild(ow);
+      }
+    }
+
+    const wrapNones = anchor.getElementsByTagName('wp:wrapNone');
+    if (!wrapNones || wrapNones.length === 0) {
+      const wrapNone = xmlDoc.createElementNS(WP_NS, 'wp:wrapNone');
+      const docPrs = anchor.getElementsByTagName('wp:docPr');
+      if (docPrs && docPrs.length > 0) {
+        anchor.insertBefore(wrapNone, docPrs[0]);
+      } else {
+        anchor.appendChild(wrapNone);
+      }
+    }
+  }
 }
 
 export function generateNativeConsolidatedDocx(
